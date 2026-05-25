@@ -6,7 +6,7 @@ import httpx
 from datetime import datetime
 
 from fund_rate_arb.collectors.base import BaseCollector
-from fund_rate_arb.config import HYPERLIQUID_API
+from fund_rate_arb.config import HYPERLIQUID_API, WHITELIST_HYPERLIQUID
 from fund_rate_arb.models.funding import FundingRate, OpenInterest, SpreadData
 
 
@@ -63,6 +63,8 @@ class HyperliquidCollector(BaseCollector):
 
             # Convert to symbol format: BTC -> BTCUSDT for cross-exchange matching
             symbol = f"{name}USDT"
+            if symbol not in WHITELIST_HYPERLIQUID:
+                continue
             mark_price = mid_prices.get(name.lower())
 
             results.append(FundingRate(
@@ -105,6 +107,8 @@ class HyperliquidCollector(BaseCollector):
                 continue
 
             symbol = f"{name}USDT"
+            if symbol not in WHITELIST_HYPERLIQUID:
+                continue
             results.append(OpenInterest(
                 symbol=symbol,
                 exchange="hyperliquid",
@@ -151,6 +155,8 @@ class HyperliquidCollector(BaseCollector):
                         continue
                     spread_bps = ((best_ask - best_bid) / best_bid) * 10000
                     symbol = f"{name.upper()}USDT"
+                    if symbol not in WHITELIST_HYPERLIQUID:
+                        continue
                     results.append(SpreadData(
                         symbol=symbol,
                         exchange="hyperliquid",

@@ -6,7 +6,7 @@ import httpx
 from datetime import datetime
 
 from fund_rate_arb.collectors.base import BaseCollector
-from fund_rate_arb.config import BINANCE_FUTURES_BASE
+from fund_rate_arb.config import BINANCE_FUTURES_BASE, WHITELIST_BINANCE
 from fund_rate_arb.models.funding import FundingRate, OpenInterest, SpreadData
 
 
@@ -27,9 +27,9 @@ class BinanceCollector(BaseCollector):
         now = datetime.utcnow()
         results = []
         for item in data:
-            # Filter to USDT perpetuals only
+            # Filter to whitelisted USDT perpetuals only
             symbol = item.get("symbol", "")
-            if not symbol.endswith("USDT"):
+            if symbol not in WHITELIST_BINANCE:
                 continue
 
             results.append(FundingRate(
@@ -51,7 +51,7 @@ class BinanceCollector(BaseCollector):
             info_resp.raise_for_status()
             symbols = [
                 s["symbol"] for s in info_resp.json()["symbols"]
-                if s["symbol"].endswith("USDT") and s["contractType"] == "PERPETUAL"
+                if s["symbol"] in WHITELIST_BINANCE and s["contractType"] == "PERPETUAL"
             ]
 
         now = datetime.utcnow()
@@ -100,7 +100,7 @@ class BinanceCollector(BaseCollector):
         results = []
         for item in data:
             symbol = item.get("symbol", "")
-            if not symbol.endswith("USDT"):
+            if symbol not in WHITELIST_BINANCE:
                 continue
             bid = float(item["bidPrice"])
             ask = float(item["askPrice"])
