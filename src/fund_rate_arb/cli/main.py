@@ -20,6 +20,7 @@ from fund_rate_arb.db import (
 )
 from fund_rate_arb.collectors import BinanceCollector, HyperliquidCollector
 from fund_rate_arb.scoring import compute_quality_score
+from fund_rate_arb.cli.report import generate_report, display_table, save_markdown
 
 console = Console()
 
@@ -32,6 +33,21 @@ def cli(ctx: click.Context, db_path: str) -> None:
     ctx.ensure_object(dict)
     ctx.obj["db_path"] = db_path
     init_db(db_path)
+
+
+@cli.command()
+@click.option("--min-apy", default=10.0, help="Minimum APY% threshold")
+@click.option("--output", "-o", default="reports/funding-report-latest.md", help="Output markdown path")
+@click.pass_context
+def report(ctx: click.Context, min_apy: float, output: str) -> None:
+    """Generate funding rate report for symbols above APY threshold."""
+    db_path = ctx.obj["db_path"]
+    results = generate_report(db_path, min_apy, output)
+    if not results:
+        console.print(f"[yellow]No candidates with APY > {min_apy}%[/]")
+        return
+    display_table(results)
+    save_markdown(results, output)
 
 
 @cli.command()
