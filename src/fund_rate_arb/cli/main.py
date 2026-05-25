@@ -187,15 +187,18 @@ def arb_opportunities(ctx: click.Context, min_spread: float) -> None:
     for symbol in common:
         b_rate = binance_map[symbol]["funding_rate"]
         h_rate = hyperliquid_map[symbol]["funding_rate"]
-        differential = abs(b_rate - h_rate)
+        # Convert Hyperliquid hourly rate to per-8h equivalent
+        h_rate_per_8h = h_rate * 8
+        differential = abs(b_rate - h_rate_per_8h)
 
         if differential >= min_spread:
             opportunities.append({
                 "symbol": symbol,
                 "binance_rate": b_rate,
                 "hyperliquid_rate": h_rate,
+                "hyperliquid_rate_per_8h": h_rate_per_8h,
                 "differential": differential,
-                "direction": "Binance→Hyperliquid" if b_rate > h_rate else "Hyperliquid→Binance",
+                "direction": "Binance→Hyperliquid" if b_rate > h_rate_per_8h else "Hyperliquid→Binance",
             })
 
     if not opportunities:
@@ -214,12 +217,12 @@ def arb_opportunities(ctx: click.Context, min_spread: float) -> None:
     table.add_column("Diff APY%", justify="right")
 
     for opp in opportunities:
-        diff_apy = opp["differential"] * 1095 * 100  # annualized percentage
+        diff_apy = opp["differential"] * 1095 * 100  # annualized percentage (per-8h basis)
         table.add_row(
             opp["symbol"],
             opp["direction"],
             f"{opp['binance_rate'] * 100:.5f}%",
-            f"{opp['hyperliquid_rate'] * 100:.5f}%",
+            f"{opp['hyperliquid_rate_per_8h'] * 100:.5f}%",
             f"{opp['differential'] * 100:.5f}%",
             f"{diff_apy:.2f}%",
         )

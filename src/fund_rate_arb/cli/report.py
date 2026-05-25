@@ -43,7 +43,10 @@ def generate_report(
     results = []
     for r in rows:
         fr = r['funding_rate']
-        apy = fr * 1095 * 100
+        # Hyperliquid: hourly rates → * 8760 (24h * 365)
+        # Binance: per-8h rates → * 1095 (3 * 365)
+        multiplier = 8760 if r['exchange'] == 'hyperliquid' else 1095
+        apy = fr * multiplier * 100
         if apy < min_apy:
             continue
 

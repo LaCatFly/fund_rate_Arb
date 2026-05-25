@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
+
 import httpx
 from datetime import datetime
 
 from fund_rate_arb.collectors.base import BaseCollector
-from fund_rate_arb.config import BINANCE_FUTURES_BASE, WHITELIST_BINANCE
+from fund_rate_arb.config import BINANCE_FUTURES_BASE, WHITELIST_BINANCE, BINANCE_PROXY
 from fund_rate_arb.models.funding import FundingRate, OpenInterest, SpreadData
+
+logger = logging.getLogger(__name__)
 
 
 class BinanceCollector(BaseCollector):
@@ -19,10 +24,14 @@ class BinanceCollector(BaseCollector):
 
     async def fetch_funding_rates(self) -> list[FundingRate]:
         """GET /fapi/v1/premiumIndex — returns all symbols with funding info."""
-        async with httpx.AsyncClient(base_url=BINANCE_FUTURES_BASE) as client:
-            resp = await client.get("/fapi/v1/premiumIndex", timeout=30.0)
-            resp.raise_for_status()
-            data = resp.json()
+        try:
+            async with httpx.AsyncClient(base_url=BINANCE_FUTURES_BASE, proxy=BINANCE_PROXY) as client:
+                resp = await client.get("/fapi/v1/premiumIndex", timeout=30.0)
+                resp.raise_for_status()
+                data = resp.json()
+        except Exception as e:
+            logger.error("Binance fetch_funding_rates failed: %s", e)
+            return []
 
         now = datetime.utcnow()
         results = []
@@ -46,7 +55,7 @@ class BinanceCollector(BaseCollector):
         """GET /fapi/v1/openInterest — query OI for each whitelisted symbol."""
         now = datetime.utcnow()
         results = []
-        async with httpx.AsyncClient(base_url=BINANCE_FUTURES_BASE) as client:
+        async with httpx.AsyncClient(base_url=BINANCE_FUTURES_BASE, proxy=BINANCE_PROXY) as client:
             tasks = []
             for sym in WHITELIST_BINANCE:
                 tasks.append(self._fetch_single_oi(client, sym, now))
@@ -75,15 +84,23 @@ class BinanceCollector(BaseCollector):
                 timestamp=now,
                 open_interest=oi,
             )
-        except Exception:
+        except httpx.HTTPError as e:
+            logger.warning("Binance OI fetch failed for %s: %s", symbol, e)
+            return None
+        except (KeyError, ValueError) as e:
+            logger.warning("Binance OI parse failed for %s: %s", symbol, e)
             return None
 
     async def fetch_spreads(self) -> list[SpreadData]:
         """GET /fapi/v1/ticker/bookTicker — best bid/ask for all symbols."""
-        async with httpx.AsyncClient(base_url=BINANCE_FUTURES_BASE) as client:
-            resp = await client.get("/fapi/v1/ticker/bookTicker", timeout=30.0)
-            resp.raise_for_status()
-            data = resp.json()
+        try:
+            async with httpx.AsyncClient(base_url=BINANCE_FUTURES_BASE, proxy=BINANCE_PROXY) as client:
+                resp = await client.get("/fapi/v1/ticker/bookTicker", timeout=30.0)
+                resp.raise_for_status()
+                data = resp.json()
+        except Exception as e:
+            logger.error("Binance fetch_spreads failed: %s", e)
+            return []
 
         now = datetime.utcnow()
         results = []
@@ -109,7 +126,6 @@ class BinanceCollector(BaseCollector):
 
 async def asyncio_gather_safe(tasks: list, limit: int = 20) -> list:
     """Run tasks with concurrency limit, suppressing individual failures."""
-    import asyncio
     semaphore = asyncio.Semaphore(limit)
 
     async def bounded(task):
