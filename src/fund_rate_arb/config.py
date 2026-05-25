@@ -8,32 +8,31 @@ BINANCE_FUTURES_BASE = "https://fapi.binance.com"
 HYPERLIQUID_API = "https://api.hyperliquid.xyz"
 
 # Whitelisted tickers for TradeFI/US stock scans only
-# Hyperliquid: HIP-3 equity perps (Trade[XYZ] + Felix), symbol = NAME + USDT
+# Hyperliquid: HIP-3 equity perps use "xyz:" namespace prefix in native API.
+# Symbol format for cross-exchange display: TSLA (no suffix)
 WHITELIST_HYPERLIQUID = {
     # Top equity perps
+    "TSLA", "NVDA", "AAPL", "MSFT", "AMZN",
+    "META", "GOOGL", "PLTR", "MSTR", "COIN",
+    "AMD", "HOOD", "ORCL", "INTC", "NFLX",
+    # Commodities/ETFs on Hyperliquid
+    "BABA", "MU", "CRCL",
+    # Indices
+    "SPCX", "SP500", "XYZ100",
+}
+
+# Binance: stock-like USDT perpetuals on fapi.binance.com
+WHITELIST_BINANCE = {
     "TSLAUSDT", "NVDAUSDT", "AAPLUSDT", "MSFTUSDT", "AMZNUSDT",
     "METAUSDT", "GOOGLUSDT", "PLTRUSDT", "MSTRUSDT", "COINUSDT",
     "AMDUSDT", "HOODUSDT", "ORCLUSDT", "INTCUSDT",
-    # Pre-IPO
-    "SPCXUSDT", "OPENAIUSDT",
-    # Indices
-    "SP500USDT", "XYZ100USDT",
+    "BABAUSDT", "MUUSDT", "CRCLUSDT",
 }
 
-# Binance: Ondo tokenized stocks on Binance Alpha (spot tokens, not USDT perps)
-# WARNING: these are NOT on fapi.binance.com (futures API). Current BinanceCollector
-# only hits the Futures API. These symbols will return 0 results until a spot collector
-# for Binance Alpha is added (uses Binance spot API or Ondo on-chain data).
-WHITELIST_BINANCE = {
-    "AAPLon", "TSLAon", "NVDAon", "GOOGLon", "METAon",
-    "AMZNon", "MSFTon", "NFLXon", "CRCLon", "QQQon",
-    "COINon", "HOODon", "PLTRon", "MUon", "ORCLon",
-    "INTCon", "MSTRon", "ABNBon", "JDon", "BABAon",
-    "SLVon", "XYZon", "MTZon",
-}
-
-# Combined display names
-WHITELIST_SYMBOLS = sorted(WHITELIST_HYPERLIQUID | {s.replace("on", "").upper() for s in WHITELIST_BINANCE})
+# Combined display base names (no suffix)
+WHITELIST_SYMBOLS = sorted(
+    WHITELIST_HYPERLIQUID | {s.replace("USDT", "") for s in WHITELIST_BINANCE}
+)
 
 # Default scoring weights
 DEFAULT_WEIGHTS = {

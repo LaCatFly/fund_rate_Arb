@@ -37,6 +37,10 @@ SKIP = {
     "XAU", "XAG", "OIL", "WTI", "BRENT",
     # Indices (crypto)
     "DEFI", "CEX", "METVERSE",
+    # Meme coins that match stock ticker substring
+    "HMSTR", "FARTCOIN", "LAUNCHCOIN",
+    "BABY", "BADGER", "BAKE", "BAL", "BAN", "BANANA", "BAND", "BANK",
+    "BARD", "BAS", "BASED", "BAT", "HBAR", "MUBARAK",
 }
 
 stock_perps = []

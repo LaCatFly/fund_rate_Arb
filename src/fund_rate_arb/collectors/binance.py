@@ -27,7 +27,6 @@ class BinanceCollector(BaseCollector):
         now = datetime.utcnow()
         results = []
         for item in data:
-            # Filter to whitelisted USDT perpetuals only
             symbol = item.get("symbol", "")
             if symbol not in WHITELIST_BINANCE:
                 continue
@@ -37,7 +36,7 @@ class BinanceCollector(BaseCollector):
                 exchange="binance",
                 timestamp=now,
                 funding_rate=float(item["lastFundingRate"]),
-                predicted_rate=float(item["lastFundingRate"]),  # Binance doesn't expose predicted directly here
+                predicted_rate=float(item["lastFundingRate"]),
                 mark_price=float(item["markPrice"]),
                 index_price=float(item["indexPrice"]),
             ))
@@ -46,7 +45,6 @@ class BinanceCollector(BaseCollector):
     async def fetch_open_interest(self) -> list[OpenInterest]:
         """GET /fapi/v1/openInterest — aggregate OI per symbol."""
         async with httpx.AsyncClient(base_url=BINANCE_FUTURES_BASE) as client:
-            # First get all symbols from exchange info
             info_resp = await client.get("/fapi/v1/exchangeInfo", timeout=30.0)
             info_resp.raise_for_status()
             symbols = [

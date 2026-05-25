@@ -1,4 +1,4 @@
-"""Hyperliquid perpetuals data collector."""
+"""Hyperliquid equity perps data collector."""
 
 from __future__ import annotations
 
@@ -10,8 +10,18 @@ from fund_rate_arb.config import HYPERLIQUID_API, WHITELIST_HYPERLIQUID
 from fund_rate_arb.models.funding import FundingRate, OpenInterest, SpreadData
 
 
+# HIP-3 namespace prefix for equity perps on Hyperliquid
+HIP3_PREFIX = "xyz:"
+
+
 class HyperliquidCollector(BaseCollector):
-    """Collects funding, OI, and spread data from Hyperliquid."""
+    """Collects funding, OI, and spread data from Hyperliquid equity perps.
+
+    Uses native Hyperliquid POST /info API:
+    - fundingHistory: hourly funding rate per coin (requires startTime)
+    - metaAndAssetCtxs: current mark prices, OI, and per-asset context
+    - l2Book: orderbook depth for spread calculation
+    """
 
     @property
     def exchange_name(self) -> str:
@@ -24,93 +34,75 @@ class HyperliquidCollector(BaseCollector):
             return resp.json()
 
     async def fetch_funding_rates(self) -> list[FundingRate]:
-        """Fetch funding rates for all active perps on Hyperliquid.
+        """Fetch latest funding rates for whitelisted equity perps.
 
-        Hyperliquid API:
-        - POST /info with {"type": "meta"} gives coin metadata (names, indices)
-        - POST /info with {"type": "allMids"} gives current mark prices
-        - Funding is embedded in meta response per asset
+        For each whitelisted symbol, calls fundingHistory with "xyz:{TICKER}"
+        to get the most recent hourly funding entry.
         """
-        meta = await self._post_info({"type": "meta"})
-        mids = await self._post_info({"type": "allMids"})
-
-        # mids is a dict of coin_name -> mid price
-        mid_prices = {}
-        if isinstance(mids, dict):
-            for coin, price in mids.items():
-                try:
-                    mid_prices[coin.lower()] = float(price)
-                except (ValueError, TypeError):
-                    pass
-
         now = datetime.utcnow()
         results = []
 
-        # Meta response has "universe" array with perp assets
-        universe = meta.get("universe", []) if isinstance(meta, dict) else []
-        for asset in universe:
-            name = asset.get("name", "").upper()
-            if not name:
-                continue
-
-            # Hyperliquid funding rate is stored in "funding" field
-            # It's the 8-hour funding rate as a decimal
-            raw_funding = asset.get("funding", "0")
+        for ticker in WHITELIST_HYPERLIQUID:
+            coin = f"{HIP3_PREFIX}{ticker}"
             try:
-                funding_rate = float(raw_funding)
-            except (ValueError, TypeError):
+                data = await self._post_info({
+                    "type": "fundingHistory",
+                    "coin": coin,
+                    "startTime": 0,
+                })
+                if not data:
+                    continue
+                latest = data[-1]
+                results.append(FundingRate(
+                    symbol=f"{ticker}USDT",
+                    exchange="hyperliquid",
+                    timestamp=now,
+                    funding_rate=float(latest["fundingRate"]),
+                    predicted_rate=None,
+                    mark_price=None,
+                    index_price=None,
+                ))
+            except Exception:
                 continue
-
-            # Convert to symbol format: BTC -> BTCUSDT for cross-exchange matching
-            symbol = f"{name}USDT"
-            if symbol not in WHITELIST_HYPERLIQUID:
-                continue
-            mark_price = mid_prices.get(name.lower())
-
-            results.append(FundingRate(
-                symbol=symbol,
-                exchange="hyperliquid",
-                timestamp=now,
-                funding_rate=funding_rate,
-                predicted_rate=None,
-                mark_price=mark_price,
-                index_price=mark_price,
-            ))
 
         return results
 
     async def fetch_open_interest(self) -> list[OpenInterest]:
-        """Fetch OI for all perps.
+        """Fetch OI from metaAndAssetCtxs.
 
-        Hyperliquid: POST /info with {"type": "meta"} + stats
-        OI is in the asset meta as "openInterest" (in coin units)
+        metaAndAssetCtxs returns [meta, ctxs] where ctxs[i] corresponds
+        to universe[i]. OI lives in ctxs as "openInterest".
         """
-        meta = await self._post_info({"type": "meta"})
+        data = await self._post_info({"type": "metaAndAssetCtxs"})
+        if not isinstance(data, list) or len(data) < 2:
+            return []
+
+        universe = data[0].get("universe", []) if isinstance(data[0], dict) else []
+        ctxs = data[1] if isinstance(data[1], list) else []
+
         now = datetime.utcnow()
         results = []
-
-        universe = meta.get("universe", []) if isinstance(meta, dict) else []
-        for asset in universe:
-            name = asset.get("name", "").upper()
-            if not name:
+        for i, asset in enumerate(universe):
+            name = asset.get("name", "")
+            if not name.startswith(HIP3_PREFIX):
                 continue
-
-            # Hyperliquid OI may be in different fields
-            oi = asset.get("openInterest")
-            if oi is None:
+            ticker = name[len(HIP3_PREFIX):]
+            if ticker not in WHITELIST_HYPERLIQUID:
+                continue
+            if i >= len(ctxs):
+                continue
+            ctx = ctxs[i]
+            oi_raw = ctx.get("openInterest")
+            if oi_raw is None:
                 continue
             try:
-                oi_val = float(oi)
+                oi_val = float(oi_raw)
             except (ValueError, TypeError):
                 continue
             if oi_val <= 0:
                 continue
-
-            symbol = f"{name}USDT"
-            if symbol not in WHITELIST_HYPERLIQUID:
-                continue
             results.append(OpenInterest(
-                symbol=symbol,
+                symbol=f"{ticker}USDT",
                 exchange="hyperliquid",
                 timestamp=now,
                 open_interest=oi_val,
@@ -119,30 +111,21 @@ class HyperliquidCollector(BaseCollector):
         return results
 
     async def fetch_spreads(self) -> list[SpreadData]:
-        """Fetch bid/ask spreads.
-
-        Hyperliquid: POST /info with {"type": "l2Book", "coin": "BTC"} for each asset.
-        This is expensive to do for all assets sequentially, so we use allMids
-        as a proxy and estimate spread from the mid.
-        """
-        meta = await self._post_info({"type": "meta"})
+        """Fetch bid/ask spreads via l2Book for each whitelisted equity perp."""
         now = datetime.utcnow()
         results = []
 
-        universe = meta.get("universe", []) if isinstance(meta, dict) else []
         async with httpx.AsyncClient(base_url=HYPERLIQUID_API) as client:
-            for asset in universe:
-                name = asset.get("name", "")
-                if not name:
-                    continue
+            for ticker in WHITELIST_HYPERLIQUID:
+                coin = f"{HIP3_PREFIX}{ticker}"
                 try:
-                    l2 = await client.post(
+                    resp = await client.post(
                         "/info",
-                        json={"type": "l2Book", "coin": name},
+                        json={"type": "l2Book", "coin": coin},
                         timeout=10.0,
                     )
-                    l2.raise_for_status()
-                    book = l2.json()
+                    resp.raise_for_status()
+                    book = resp.json()
                     if not isinstance(book, list) or len(book) < 2:
                         continue
                     bids = [b for b in book[0] if float(b.get("px", 0)) > 0]
@@ -154,11 +137,8 @@ class HyperliquidCollector(BaseCollector):
                     if best_bid <= 0 or best_ask <= 0:
                         continue
                     spread_bps = ((best_ask - best_bid) / best_bid) * 10000
-                    symbol = f"{name.upper()}USDT"
-                    if symbol not in WHITELIST_HYPERLIQUID:
-                        continue
                     results.append(SpreadData(
-                        symbol=symbol,
+                        symbol=f"{ticker}USDT",
                         exchange="hyperliquid",
                         timestamp=now,
                         bid=best_bid,
