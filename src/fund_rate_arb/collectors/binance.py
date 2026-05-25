@@ -43,21 +43,12 @@ class BinanceCollector(BaseCollector):
         return results
 
     async def fetch_open_interest(self) -> list[OpenInterest]:
-        """GET /fapi/v1/openInterest — aggregate OI per symbol."""
-        async with httpx.AsyncClient(base_url=BINANCE_FUTURES_BASE) as client:
-            info_resp = await client.get("/fapi/v1/exchangeInfo", timeout=30.0)
-            info_resp.raise_for_status()
-            symbols = [
-                s["symbol"] for s in info_resp.json()["symbols"]
-                if s["symbol"] in WHITELIST_BINANCE and s["contractType"] == "PERPETUAL"
-            ]
-
+        """GET /fapi/v1/openInterest — query OI for each whitelisted symbol."""
         now = datetime.utcnow()
         results = []
         async with httpx.AsyncClient(base_url=BINANCE_FUTURES_BASE) as client:
-            # Fetch OI for each symbol concurrently
             tasks = []
-            for sym in symbols:
+            for sym in WHITELIST_BINANCE:
                 tasks.append(self._fetch_single_oi(client, sym, now))
             for result in await asyncio_gather_safe(tasks, limit=20):
                 if result is not None:
