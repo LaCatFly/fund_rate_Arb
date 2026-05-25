@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import httpx
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fund_rate_arb.collectors.base import BaseCollector
 from fund_rate_arb.config import HYPERLIQUID_API, WHITELIST_HYPERLIQUID
@@ -12,6 +13,8 @@ from fund_rate_arb.models.funding import FundingRate, OpenInterest, SpreadData
 
 # HIP-3 namespace prefix for equity perps on Hyperliquid
 HIP3_PREFIX = "xyz:"
+# Funding history lookback (hours) — avoids stale entries from startTime: 0
+FUNDING_LOOKBACK_HOURS = 24
 
 
 class HyperliquidCollector(BaseCollector):
@@ -21,25 +24,29 @@ class HyperliquidCollector(BaseCollector):
     - fundingHistory: hourly funding rate per coin (requires startTime)
     - metaAndAssetCtxs: current mark prices, OI, and per-asset context
     - l2Book: orderbook depth for spread calculation
+
+    Note: metaAndAssetCtxs does not include HIP-3 (xyz:) assets.
+    OI is only available for core perps.
     """
 
     @property
     def exchange_name(self) -> str:
         return "hyperliquid"
 
-    async def _post_info(self, body: dict) -> dict | list:
+    async def _post_info(self, body: dict, timeout: float = 30.0) -> dict | list:
         async with httpx.AsyncClient(base_url=HYPERLIQUID_API) as client:
-            resp = await client.post("/info", json=body, timeout=30.0)
+            resp = await client.post("/info", json=body, timeout=timeout)
             resp.raise_for_status()
             return resp.json()
 
     async def fetch_funding_rates(self) -> list[FundingRate]:
         """Fetch latest funding rates for whitelisted equity perps.
 
-        For each whitelisted symbol, calls fundingHistory with "xyz:{TICKER}"
-        to get the most recent hourly funding entry.
+        Uses a 24h lookback window to ensure fresh rates.
+        Hyperliquid funding rates are hourly.
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
+        start_ms = int((now.timestamp() - FUNDING_LOOKBACK_HOURS * 3600) * 1000)
         results = []
 
         for ticker in WHITELIST_HYPERLIQUID:
@@ -48,17 +55,19 @@ class HyperliquidCollector(BaseCollector):
                 data = await self._post_info({
                     "type": "fundingHistory",
                     "coin": coin,
-                    "startTime": 0,
+                    "startTime": start_ms,
                 })
                 if not data:
                     continue
                 latest = data[-1]
+                rate = float(latest["fundingRate"])
+                premium = float(latest["premium"])
                 results.append(FundingRate(
                     symbol=f"{ticker}USDT",
                     exchange="hyperliquid",
                     timestamp=now,
-                    funding_rate=float(latest["fundingRate"]),
-                    predicted_rate=None,
+                    funding_rate=rate,
+                    predicted_rate=premium,
                     mark_price=None,
                     index_price=None,
                 ))
@@ -72,6 +81,8 @@ class HyperliquidCollector(BaseCollector):
 
         metaAndAssetCtxs returns [meta, ctxs] where ctxs[i] corresponds
         to universe[i]. OI lives in ctxs as "openInterest".
+
+        Note: HIP-3 (xyz:) assets are not included in metaAndAssetCtxs.
         """
         data = await self._post_info({"type": "metaAndAssetCtxs"})
         if not isinstance(data, list) or len(data) < 2:
@@ -80,13 +91,14 @@ class HyperliquidCollector(BaseCollector):
         universe = data[0].get("universe", []) if isinstance(data[0], dict) else []
         ctxs = data[1] if isinstance(data[1], list) else []
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         results = []
         for i, asset in enumerate(universe):
             name = asset.get("name", "")
-            if not name.startswith(HIP3_PREFIX):
+            # Skip HIP-3 assets — they don't have OI in metaAndAssetCtxs
+            if name.startswith(HIP3_PREFIX):
                 continue
-            ticker = name[len(HIP3_PREFIX):]
+            ticker = name[len(HIP3_PREFIX):] if name.startswith(HIP3_PREFIX) else name
             if ticker not in WHITELIST_HYPERLIQUID:
                 continue
             if i >= len(ctxs):
@@ -110,42 +122,49 @@ class HyperliquidCollector(BaseCollector):
 
         return results
 
+    async def _fetch_spread_for_ticker(self, ticker: str, client: httpx.AsyncClient) -> SpreadData | None:
+        """Fetch bid/ask spread for a single ticker via l2Book."""
+        coin = f"{HIP3_PREFIX}{ticker}"
+        try:
+            resp = await client.post(
+                "/info",
+                json={"type": "l2Book", "coin": coin},
+                timeout=10.0,
+            )
+            resp.raise_for_status()
+            book = resp.json()
+            if not isinstance(book, list) or len(book) < 2:
+                return None
+            bids = [b for b in book[0] if float(b.get("px", 0)) > 0]
+            asks = [a for a in book[1] if float(a.get("px", 0)) > 0]
+            if not bids or not asks:
+                return None
+            best_bid = float(bids[0]["px"])
+            best_ask = float(asks[0]["px"])
+            if best_bid <= 0 or best_ask <= 0:
+                return None
+            spread_bps = ((best_ask - best_bid) / best_bid) * 10000
+            return SpreadData(
+                symbol=f"{ticker}USDT",
+                exchange="hyperliquid",
+                timestamp=datetime.now(timezone.utc),
+                bid=best_bid,
+                ask=best_ask,
+                spread_bps=round(spread_bps, 2),
+            )
+        except Exception:
+            return None
+
     async def fetch_spreads(self) -> list[SpreadData]:
-        """Fetch bid/ask spreads via l2Book for each whitelisted equity perp."""
-        now = datetime.utcnow()
-        results = []
+        """Fetch bid/ask spreads via l2Book for each whitelisted equity perp.
 
+        Uses concurrent requests via a shared httpx.AsyncClient session.
+        """
         async with httpx.AsyncClient(base_url=HYPERLIQUID_API) as client:
-            for ticker in WHITELIST_HYPERLIQUID:
-                coin = f"{HIP3_PREFIX}{ticker}"
-                try:
-                    resp = await client.post(
-                        "/info",
-                        json={"type": "l2Book", "coin": coin},
-                        timeout=10.0,
-                    )
-                    resp.raise_for_status()
-                    book = resp.json()
-                    if not isinstance(book, list) or len(book) < 2:
-                        continue
-                    bids = [b for b in book[0] if float(b.get("px", 0)) > 0]
-                    asks = [a for a in book[1] if float(a.get("px", 0)) > 0]
-                    if not bids or not asks:
-                        continue
-                    best_bid = float(bids[0]["px"])
-                    best_ask = float(asks[0]["px"])
-                    if best_bid <= 0 or best_ask <= 0:
-                        continue
-                    spread_bps = ((best_ask - best_bid) / best_bid) * 10000
-                    results.append(SpreadData(
-                        symbol=f"{ticker}USDT",
-                        exchange="hyperliquid",
-                        timestamp=now,
-                        bid=best_bid,
-                        ask=best_ask,
-                        spread_bps=round(spread_bps, 2),
-                    ))
-                except Exception:
-                    continue
+            tasks = [
+                self._fetch_spread_for_ticker(ticker, client)
+                for ticker in WHITELIST_HYPERLIQUID
+            ]
+            spread_results = await asyncio.gather(*tasks)
 
-        return results
+        return [r for r in spread_results if r is not None]

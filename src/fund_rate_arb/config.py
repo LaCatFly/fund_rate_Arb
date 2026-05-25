@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import os
 
 BINANCE_FUTURES_BASE = "https://fapi.binance.com"
 HYPERLIQUID_API = "https://api.hyperliquid.xyz"
@@ -56,6 +57,10 @@ DEFAULT_FEES = {
 
 FUNDING_INTERVALS_PER_DAY = 3  # every 8 hours
 FUNDING_INTERVALS_PER_YEAR = FUNDING_INTERVALS_PER_DAY * 365
+
+# HTTP proxy for Binance (Clash Meta mixed port). Override via BINANCE_PROXY env var.
+# Empty string = direct connection.
+BINANCE_PROXY = os.environ.get("BINANCE_PROXY", "http://127.0.0.1:7897")
 
 
 @dataclass
