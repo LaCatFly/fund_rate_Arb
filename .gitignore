@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Database
+*.db
+*.db-wal
+*.db-shm
+
+# IDE
+.vscode/
+.idea/
+
+# Secrets
+.env
+*.env
