@@ -220,9 +220,9 @@ def query_funding_history(
         cur = conn.execute(
             """SELECT * FROM funding_rates
                WHERE symbol = ? AND exchange = ?
-               ORDER BY timestamp DESC
-               LIMIT ?""",
-            (symbol, exchange, days * 4),  # 4 readings per day max (some exchanges do 1h)
+               AND timestamp >= datetime('now', ?)
+               ORDER BY timestamp DESC""",
+            (symbol, exchange, f"-{days} days"),
         )
         return [dict(row) for row in cur.fetchall()]
     finally:
@@ -233,30 +233,50 @@ def query_all_latest(
     db_path: str,
     exchange: str | None = None,
 ) -> list[dict]:
-    """Get latest funding rate per symbol."""
+    """Get latest funding rate per symbol, joined with spread and OI."""
     conn = get_connection(db_path)
     conn.row_factory = sqlite3.Row
     try:
         if exchange:
             cur = conn.execute(
-                """SELECT f.* FROM funding_rates f
+                """SELECT f.*, COALESCE(o.open_interest, 0) as open_interest,
+                       COALESCE(s.spread_bps, 0) as spread_bps
+                   FROM funding_rates f
                    INNER JOIN (
                        SELECT symbol, MAX(timestamp) as max_ts
                        FROM funding_rates WHERE exchange = ?
                        GROUP BY symbol
                    ) latest ON f.symbol = latest.symbol AND f.timestamp = latest.max_ts
+                   LEFT JOIN (
+                       SELECT symbol, open_interest FROM oi_snapshots
+                       WHERE exchange = ? AND timestamp >= datetime('now', '-1 hours')
+                   ) o ON f.symbol = o.symbol
+                   LEFT JOIN (
+                       SELECT symbol, spread_bps FROM spread_data
+                       WHERE exchange = ? AND timestamp >= datetime('now', '-1 hours')
+                   ) s ON f.symbol = s.symbol
                    WHERE f.exchange = ?""",
-                (exchange, exchange),
+                (exchange, exchange, exchange, exchange),
             )
         else:
             cur = conn.execute(
-                """SELECT f.* FROM funding_rates f
+                """SELECT f.*, COALESCE(o.open_interest, 0) as open_interest,
+                       COALESCE(s.spread_bps, 0) as spread_bps
+                   FROM funding_rates f
                    INNER JOIN (
                        SELECT symbol, exchange, MAX(timestamp) as max_ts
                        FROM funding_rates GROUP BY symbol, exchange
                    ) latest ON f.symbol = latest.symbol
                        AND f.exchange = latest.exchange
-                       AND f.timestamp = latest.max_ts"""
+                       AND f.timestamp = latest.max_ts
+                   LEFT JOIN (
+                       SELECT symbol, exchange, open_interest FROM oi_snapshots
+                       WHERE timestamp >= datetime('now', '-1 hours')
+                   ) o ON f.symbol = o.symbol AND f.exchange = o.exchange
+                   LEFT JOIN (
+                       SELECT symbol, exchange, spread_bps FROM spread_data
+                       WHERE timestamp >= datetime('now', '-1 hours')
+                   ) s ON f.symbol = s.symbol AND f.exchange = s.exchange"""
             )
         return [dict(row) for row in cur.fetchall()]
     finally:

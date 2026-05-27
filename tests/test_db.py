@@ -3,6 +3,7 @@
 import os
 import sqlite3
 import tempfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fund_rate_arb.db import (
@@ -72,10 +73,14 @@ class TestDatabase:
         db = self._get_tmp_db()
         try:
             init_db(db)
+            now = datetime.now(timezone.utc)
+            t1 = (now - timedelta(hours=12)).strftime("%Y-%m-%dT%H:%M:%S")
+            t2 = (now - timedelta(hours=8)).strftime("%Y-%m-%dT%H:%M:%S")
+            t3 = (now - timedelta(hours=4)).strftime("%Y-%m-%dT%H:%M:%S")
             rows = [
-                ("BTCUSDT", "binance", "2025-01-01T00:00:00", 0.0001, None, 50000.0, None),
-                ("BTCUSDT", "binance", "2025-01-01T08:00:00", 0.00012, None, 50100.0, None),
-                ("BTCUSDT", "binance", "2025-01-01T16:00:00", 0.00011, None, 50050.0, None),
+                ("BTCUSDT", "binance", t1, 0.0001, None, 50000.0, None),
+                ("BTCUSDT", "binance", t2, 0.00012, None, 50100.0, None),
+                ("BTCUSDT", "binance", t3, 0.00011, None, 50050.0, None),
             ]
             insert_funding_rates(db, rows)
 

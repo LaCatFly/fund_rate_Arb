@@ -19,3 +19,7 @@ build/
 # Secrets
 .env
 *.env
+.DS_Store
+.codegraph/
+skills-output.json
+settings.local.yaml
