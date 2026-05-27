@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 
 from pydantic import BaseModel, Field
@@ -79,3 +80,53 @@ class FundingScore(BaseModel):
     estimated_apy: float
     break_even_days: float
     regime: str = "neutral"  # bull/bear/neutral
+
+
+@dataclass
+class CarryPosition:
+    """Runtime position state for a carry trade."""
+    execution_id: str           # UUID
+    strategy_name: str
+    symbol: str
+    exchange: str               # "binance_pm" | "paper"
+    side: str                   # "SHORT"
+    contracts: float
+    entry_price: float
+    entry_basis: float          # (mark - index) / index at entry
+    entry_cost: float           # total fees + slippage
+    cumulative_funding: float
+    notional_usdt: float
+    opened_at: str              # ISO timestamp
+    max_break_even_days: int
+    status: str                 # "Open" | "Closing" | "Closed"
+    close_reason: str | None = None
+
+
+@dataclass
+class ExitSignal:
+    position_execution_id: str
+    rule_type: str
+    severity: str               # "info" | "warning" | "critical"
+    message: str
+
+
+@dataclass
+class MarketData:
+    """Aggregated market data for a position's monitor cycle."""
+    symbol: str
+    exchange: str
+    current_mark: float
+    current_index: float
+    current_basis: float
+    funding_history_48h: list[float]
+    oi_window_8h: list[float]
+    distance_to_liq_pct: float | None = None
+    predicted_funding: float | None = None
+
+
+@dataclass
+class FundingSummary:
+    total_payments: float
+    count: int
+    average_rate: float
+    last_payment_ts: str | None = None

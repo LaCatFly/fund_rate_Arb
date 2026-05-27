@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+import uuid
 from pathlib import Path
 
 SCHEMA = """
@@ -105,6 +106,46 @@ def init_db(db_path: str = "fund_rate_arb.db") -> None:
     conn = get_connection(db_path)
     try:
         conn.executescript(SCHEMA)
+    finally:
+        conn.close()
+
+
+def migrate_db(db_path: str = "fund_rate_arb.db") -> None:
+    """Add strategy columns and trade_log table. Safe to re-run."""
+    conn = get_connection(db_path)
+    try:
+        # ALTER TABLE ADD COLUMN IF NOT EXISTS requires SQLite 3.35.0+;
+        # fall back to try/except for older builds.
+        alter_stmts = [
+            "ALTER TABLE positions ADD COLUMN strategy_name TEXT",
+            "ALTER TABLE positions ADD COLUMN entry_basis REAL DEFAULT 0",
+            "ALTER TABLE positions ADD COLUMN cumulative_funding REAL DEFAULT 0",
+            "ALTER TABLE positions ADD COLUMN max_break_even_days INTEGER DEFAULT 10",
+            "ALTER TABLE positions ADD COLUMN close_reason TEXT",
+            "ALTER TABLE positions ADD COLUMN execution_id TEXT",
+            "ALTER TABLE trades ADD COLUMN strategy_name TEXT",
+            "ALTER TABLE trades ADD COLUMN execution_id TEXT",
+            "ALTER TABLE trades ADD COLUMN event_type TEXT",
+        ]
+        for stmt in alter_stmts:
+            try:
+                conn.execute(stmt)
+            except sqlite3.OperationalError:
+                pass  # column already exists
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS trade_log (
+                id INTEGER PRIMARY KEY,
+                execution_id TEXT NOT NULL,
+                strategy_name TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                event TEXT NOT NULL,
+                timestamp TEXT NOT NULL,
+                details TEXT,
+                UNIQUE(execution_id, event, timestamp)
+            );
+            CREATE INDEX IF NOT EXISTS idx_trade_log_execution ON trade_log(execution_id);
+            CREATE INDEX IF NOT EXISTS idx_trade_log_event ON trade_log(event);
+        """)
     finally:
         conn.close()
 
@@ -298,5 +339,145 @@ def query_recent_trades(db_path: str, limit: int = 20) -> list[dict]:
             (limit,),
         )
         return [dict(row) for row in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def query_oi_history(db_path: str, symbol: str, exchange: str, hours: int) -> list[dict]:
+    """Get OI snapshots in the last N hours."""
+    conn = get_connection(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        cur = conn.execute(
+            """SELECT * FROM oi_snapshots
+               WHERE symbol = ? AND exchange = ?
+               AND timestamp >= datetime('now', ?)
+               ORDER BY timestamp ASC""",
+            (symbol, exchange, f"-{hours} hours"),
+        )
+        return [dict(row) for row in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def query_funding_range(db_path: str, symbol: str, exchange: str, start_ts: str, end_ts: str) -> list[dict]:
+    """Get funding rates between two timestamps."""
+    conn = get_connection(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        cur = conn.execute(
+            """SELECT * FROM funding_rates
+               WHERE symbol = ? AND exchange = ?
+               AND timestamp >= ? AND timestamp <= ?
+               ORDER BY timestamp ASC""",
+            (symbol, exchange, start_ts, end_ts),
+        )
+        return [dict(row) for row in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def insert_strategy_position(db_path: str, row: tuple) -> str:
+    """Insert a strategy position. Returns execution_id (UUID)."""
+    execution_id = str(uuid.uuid4())
+    conn = get_connection(db_path)
+    try:
+        conn.execute(
+            """INSERT INTO positions
+               (symbol, exchange, side, contracts, entry_price, current_price,
+                unrealized_pnl, margin_used, leverage, opened_at, status,
+                strategy_name, entry_basis, cumulative_funding, max_break_even_days, execution_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (*row, execution_id),
+        )
+        conn.commit()
+        return execution_id
+    finally:
+        conn.close()
+
+
+def update_position_funding(db_path: str, execution_id: str, cumulative: float) -> None:
+    """Update cumulative funding for a position."""
+    conn = get_connection(db_path)
+    try:
+        conn.execute(
+            "UPDATE positions SET cumulative_funding = ? WHERE execution_id = ?",
+            (cumulative, execution_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def close_strategy_position(db_path: str, execution_id: str, reason: str) -> None:
+    """Close a strategy position with reason."""
+    conn = get_connection(db_path)
+    try:
+        conn.execute(
+            """UPDATE positions SET status = 'closed', close_reason = ?, updated_at = datetime('now')
+               WHERE execution_id = ?""",
+            (reason, execution_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def insert_trade_log(db_path: str, execution_id: str, strategy: str, symbol: str,
+                     event: str, details: str | None = None) -> None:
+    """Insert a trade log entry."""
+    conn = get_connection(db_path)
+    try:
+        conn.execute(
+            """INSERT OR IGNORE INTO trade_log
+               (execution_id, strategy_name, symbol, event, timestamp, details)
+               VALUES (?, ?, ?, ?, datetime('now'), ?)""",
+            (execution_id, strategy, symbol, event, details),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def query_trade_log(db_path: str, execution_id: str) -> list[dict]:
+    """Get full trade log for an execution."""
+    conn = get_connection(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        cur = conn.execute(
+            "SELECT * FROM trade_log WHERE execution_id = ? ORDER BY timestamp ASC",
+            (execution_id,),
+        )
+        return [dict(row) for row in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def query_open_positions_by_strategy(db_path: str, strategy_name: str) -> list[dict]:
+    """Get open positions for a specific strategy."""
+    conn = get_connection(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        cur = conn.execute(
+            "SELECT * FROM positions WHERE strategy_name = ? AND status = 'open' ORDER BY opened_at DESC",
+            (strategy_name,),
+        )
+        return [dict(row) for row in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def query_last_close_time(db_path: str, symbol: str, strategy_name: str) -> str | None:
+    """Get last close timestamp for a symbol+strategy (for reentry cooldown)."""
+    conn = get_connection(db_path)
+    try:
+        cur = conn.execute(
+            """SELECT updated_at FROM positions
+               WHERE symbol = ? AND strategy_name = ? AND status = 'closed'
+               ORDER BY updated_at DESC LIMIT 1""",
+            (symbol, strategy_name),
+        )
+        row = cur.fetchone()
+        return row[0] if row else None
     finally:
         conn.close()

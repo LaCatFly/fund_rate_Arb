@@ -168,16 +168,16 @@ FUNDING_LOOKBACK_HOURS: int = _RAW["strategy"]["funding_lookback_hours"]
 DEFAULT_WEIGHTS: dict[str, float] = dict(_RAW["weights"])
 DEFAULT_FEES: dict[str, float] = dict(_RAW["fees"])
 
-# Strategy specifications (lazy-loaded)
-_STRATEGY_SPECS: list | None = None
 
+def get_strategy_specs(settings: dict | None = None) -> list:
+    """Load strategy specs from settings dict (or load from YAML)."""
+    from fund_rate_arb.strategies.config import parse_strategy_specs
 
-def get_strategy_specs() -> list:
-    from fund_rate_arb.strategy.config import parse_strategy_specs
-    global _STRATEGY_SPECS
-    if _STRATEGY_SPECS is None:
-        _STRATEGY_SPECS = parse_strategy_specs(_RAW.get("strategies", []))
-    return _STRATEGY_SPECS
+    if settings is None:
+        settings = _load_settings()
+    raw = settings.get("strategies", [])
+    return parse_strategy_specs(raw)
+
 
 # Strategy constants
 FUNDING_INTERVALS_PER_DAY: int = _RAW["strategy"]["funding_intervals_per_day"]
