@@ -102,8 +102,9 @@ async def main() -> None:
 
 
 def run() -> None:
-    """Sync wrapper for console_scripts entry point."""
-    asyncio.run(main())
+    """Sync wrapper for console_scripts entry point — delegates to Click CLI."""
+    from fund_rate_arb.cli.main import cli
+    cli()
 
 
 if __name__ == "__main__":
