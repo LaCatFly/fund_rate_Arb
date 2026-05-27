@@ -39,6 +39,7 @@ class PMAccountInfo:
     total_margin_balance: float
     available_balance: float
     max_withdraw_amount: float
+    account_status: str = "NORMAL"
     positions: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -169,6 +170,7 @@ class PortfolioMarginCollector(BaseCollector):
             total_margin_balance=float(result.get("actualEquity", 0)),
             available_balance=float(result.get("totalAvailableBalance", 0)),
             max_withdraw_amount=float(result.get("virtualMaxWithdrawAmount", 0)),
+            account_status=result.get("accountStatus", "NORMAL"),
         )
 
     def fetch_balance(self) -> list[dict[str, Any]]:

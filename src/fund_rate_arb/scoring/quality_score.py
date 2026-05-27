@@ -71,14 +71,14 @@ def compute_quality_score(
     # Slippage: normalized (assume proportional to spread)
     slippage_norm = spread_cost_norm * 0.5
 
-    # Weighted score
+    # Weighted score (weights are negative for penalties, applied directly)
     score = (
         w["funding_mean"] * funding_mean_norm
         + w["persistence"] * persistence_norm
-        - w["volatility"] * volatility_norm  # note: w["volatility"] is negative in config
+        + w["volatility"] * volatility_norm
         + w["oi_stability"] * oi_stability_norm
-        - w["spread_cost"] * spread_cost_norm  # note: w["spread_cost"] is negative
-        - w["slippage"] * slippage_norm  # note: w["slippage"] is negative
+        + w["spread_cost"] * spread_cost_norm
+        + w["slippage"] * slippage_norm
     )
 
     # Fee-adjusted APY
