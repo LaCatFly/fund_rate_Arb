@@ -7,14 +7,8 @@ import httpx
 from datetime import datetime, timezone
 
 from fund_rate_arb.collectors.base import BaseCollector
-from fund_rate_arb.config import HYPERLIQUID_API, WHITELIST_HYPERLIQUID
+from fund_rate_arb.config import HYPERLIQUID_API, WHITELIST_HYPERLIQUID, HIP3_PREFIX, FUNDING_LOOKBACK_HOURS
 from fund_rate_arb.models.funding import FundingRate, OpenInterest, SpreadData
-
-
-# HIP-3 namespace prefix for equity perps on Hyperliquid
-HIP3_PREFIX = "xyz:"
-# Funding history lookback (hours) — avoids stale entries from startTime: 0
-FUNDING_LOOKBACK_HOURS = 24
 
 
 class HyperliquidCollector(BaseCollector):

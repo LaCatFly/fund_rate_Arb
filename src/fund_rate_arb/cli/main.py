@@ -256,3 +256,158 @@ def history(ctx: click.Context, symbol: str, exchange: str, days: int) -> None:
         table.add_row(ts, rate_str, mark)
 
     console.print(table)
+
+
+@cli.command()
+@click.pass_context
+def pm_status(ctx: click.Context) -> None:
+    """Show portfolio margin account status, positions, and recent trades."""
+    db_path = ctx.obj["db_path"]
+    from fund_rate_arb.collectors.portfolio_margin import PortfolioMarginCollector
+    from fund_rate_arb.trading.engine import TradingEngine
+    from fund_rate_arb.db import query_open_positions, query_recent_trades
+
+    collector = PortfolioMarginCollector()
+    engine = TradingEngine(collector, db_path)
+    status = engine.pm_status()
+
+    account = status["account"]
+    console.print("[bold cyan]=== Portfolio Margin Account ===[/]")
+    console.print(f"  Equity:   [green]{account.total_account_balance:.2f}[/] USDT")
+    console.print(f"  Available:[green]{account.available_balance:.2f}[/] USDT")
+    console.print(f"  Status:   {account.account_type}")
+
+    # Live positions
+    live_positions = status["live_positions"]
+    console.print(f"\n[bold cyan]=== Open Positions ({len(live_positions)}) ===[/]")
+    if live_positions:
+        table = Table()
+        table.add_column("Symbol")
+        table.add_column("Side")
+        table.add_column("Contracts", justify="right")
+        table.add_column("Entry", justify="right")
+        table.add_column("PnL", justify="right")
+        table.add_column("Leverage", justify="right")
+
+        for p in live_positions:
+            pnl_style = "green" if p["unrealized_pnl"] >= 0 else "red"
+            table.add_row(
+                p["symbol"],
+                p["side"].upper(),
+                f"{p['contracts']}",
+                f"{p['entry_price']:.4f}",
+                f"[{pnl_style}]{p['unrealized_pnl']:.4f}[/]",
+                str(p["leverage"]),
+            )
+        console.print(table)
+    else:
+        console.print("  [dim]No open positions[/]")
+
+    # Recent trades
+    trades = status["recent_trades"]
+    console.print(f"\n[bold cyan]=== Recent Trades ({len(trades)}) ===[/]")
+    if trades:
+        table = Table()
+        table.add_column("Time")
+        table.add_column("Symbol")
+        table.add_column("Side")
+        table.add_column("Amount", justify="right")
+        table.add_column("Price", justify="right")
+        table.add_column("Status")
+        table.add_column("Order ID")
+
+        for t in trades:
+            ts = t["created_at"][:19] if t["created_at"] else "?"
+            table.add_row(
+                ts,
+                t["symbol"],
+                f"{t['position_side'] or ''} {t['side']}".strip().upper(),
+                f"{t['amount']}",
+                f"{t['average'] or t['price'] or 'N/A'}",
+                t["status"],
+                t["order_id"],
+            )
+        console.print(table)
+    else:
+        console.print("  [dim]No trades recorded[/]")
+
+
+@cli.command()
+@click.option("--symbol", "-s", required=True, help="Symbol to trade (e.g. DOT/USDT:USDT)")
+@click.option("--side", required=True, type=click.Choice(["long", "short"]), help="Position direction")
+@click.option("--amount", "-a", type=float, required=True, help="Contract amount")
+@click.option("--dry-run", is_flag=True, help="Print order details without executing")
+@click.pass_context
+def trade(ctx: click.Context, symbol: str, side: str, amount: float, dry_run: bool) -> None:
+    """Execute a single futures order via portfolio margin."""
+    from fund_rate_arb.collectors.portfolio_margin import PortfolioMarginCollector
+
+    collector = PortfolioMarginCollector()
+    db_path = ctx.obj["db_path"]
+    from fund_rate_arb.trading.engine import TradingEngine
+
+    engine = TradingEngine(collector, db_path)
+
+    position_side = side.upper()
+    order_side = "buy" if side == "long" else "sell"
+
+    if dry_run:
+        ticker = collector.exchange.fetch_ticker(symbol)
+        console.print(f"[yellow]DRY RUN[/] {position_side} {symbol}: {amount} units @ ~{ticker['last']}")
+        notional = amount * ticker["last"]
+        console.print(f"  Estimated notional: ${notional:.2f}")
+        return
+
+    # Risk check
+    can_trade, msg = engine.risk.check_can_trade(collector)
+    if not can_trade:
+        console.print(f"[red]Risk check failed: {msg}[/]")
+        return
+
+    console.print(f"[bold green]Executing[/] {position_side} {symbol}: {amount} units")
+
+    result = collector.place_order(
+        symbol=symbol,
+        side=order_side,
+        amount=amount,
+        position_side=position_side,
+    )
+    console.print(f"  Order ID:  {result.order_id}")
+    console.print(f"  Status:    {result.status}")
+    console.print(f"  Filled:    {result.filled}")
+    console.print(f"  Avg Price: {result.average}")
+
+    engine.record_trade(result)
+    console.print("[green]Trade recorded[/]")
+
+
+@cli.command()
+@click.option("--symbol", "-s", required=True, help="Symbol to close")
+@click.option("--side", required=True, type=click.Choice(["long", "short"]), help="Position side to close")
+@click.option("--amount", "-a", type=float, required=True, help="Contract amount to close")
+@click.pass_context
+def close(ctx: click.Context, symbol: str, side: str, amount: float) -> None:
+    """Close an existing futures position via portfolio margin."""
+    from fund_rate_arb.collectors.portfolio_margin import PortfolioMarginCollector
+
+    collector = PortfolioMarginCollector()
+    db_path = ctx.obj["db_path"]
+    from fund_rate_arb.trading.engine import TradingEngine
+
+    engine = TradingEngine(collector, db_path)
+    position_side = side.upper()
+
+    console.print(f"[bold red]Closing[/] {position_side} {symbol}: {amount} units")
+
+    result = collector.close_position(
+        symbol=symbol,
+        amount=amount,
+        position_side=position_side,
+    )
+    console.print(f"  Order ID:  {result.order_id}")
+    console.print(f"  Status:    {result.status}")
+    console.print(f"  Filled:    {result.filled}")
+    console.print(f"  Avg Price: {result.average}")
+
+    engine.record_trade(result)
+    console.print("[green]Position closed, trade recorded[/]")

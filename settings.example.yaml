@@ -1,0 +1,276 @@
+# settings.yaml — Operational parameters for fund_rate_arb
+# Edit freely when strategy changes. Not tracked in code.
+#
+# Load order:
+#   1. This file (repo root or ~/.config/fund_rate_arb/settings.yaml)
+#   2. Environment variables override individual values
+#   3. Code defaults if neither present
+
+# ---------------------------------------------------------------------------
+# Underlyings & cross-exchange mapping
+# Each entry maps one asset to its symbol on every venue.
+# Spot symbols remain null if the exchange has no tokenized stock product.
+# ---------------------------------------------------------------------------
+underlyings:
+  - ticker: TSLA
+    name: Tesla
+    binance_f: TSLAUSDT
+    binance_s: null
+    hl_perp: TSLA
+    hl_spot: null
+    sector: equity
+
+  - ticker: NVDA
+    name: NVIDIA
+    binance_f: NVDAUSDT
+    binance_s: null
+    hl_perp: NVDA
+    hl_spot: null
+    sector: equity
+
+  - ticker: AAPL
+    name: Apple
+    binance_f: AAPLUSDT
+    binance_s: null
+    hl_perp: AAPL
+    hl_spot: null
+    sector: equity
+
+  - ticker: MSFT
+    name: Microsoft
+    binance_f: MSFTUSDT
+    binance_s: null
+    hl_perp: MSFT
+    hl_spot: null
+    sector: equity
+
+  - ticker: AMZN
+    name: Amazon
+    binance_f: AMZNUSDT
+    binance_s: null
+    hl_perp: AMZN
+    hl_spot: null
+    sector: equity
+
+  - ticker: META
+    name: Meta Platforms
+    binance_f: METAUSDT
+    binance_s: null
+    hl_perp: META
+    hl_spot: null
+    sector: equity
+
+  - ticker: GOOGL
+    name: Alphabet
+    binance_f: GOOGLUSDT
+    binance_s: null
+    hl_perp: GOOGL
+    hl_spot: null
+    sector: equity
+
+  - ticker: PLTR
+    name: Palantir
+    binance_f: PLTRUSDT
+    binance_s: null
+    hl_perp: PLTR
+    hl_spot: null
+    sector: equity
+
+  - ticker: MSTR
+    name: MicroStrategy
+    binance_f: MSTRUSDT
+    binance_s: null
+    hl_perp: MSTR
+    hl_spot: null
+    sector: equity
+
+  - ticker: COIN
+    name: Coinbase
+    binance_f: COINUSDT
+    binance_s: null
+    hl_perp: COIN
+    hl_spot: null
+    sector: equity
+
+  - ticker: AMD
+    name: AMD
+    binance_f: AMDUSDT
+    binance_s: null
+    hl_perp: AMD
+    hl_spot: null
+    sector: equity
+
+  - ticker: HOOD
+    name: Robinhood
+    binance_f: HOODUSDT
+    binance_s: null
+    hl_perp: HOOD
+    hl_spot: null
+    sector: equity
+
+  - ticker: ORCL
+    name: Oracle
+    binance_f: ORCLUSDT
+    binance_s: null
+    hl_perp: ORCL
+    hl_spot: null
+    sector: equity
+
+  - ticker: INTC
+    name: Intel
+    binance_f: INTCUSDT
+    binance_s: null
+    hl_perp: INTC
+    hl_spot: null
+    sector: equity
+
+  - ticker: NFLX
+    name: Netflix
+    binance_f: null
+    binance_s: null
+    hl_perp: NFLX
+    hl_spot: null
+    sector: equity
+
+  - ticker: BABA
+    name: Alibaba
+    binance_f: BABAUSDT
+    binance_s: null
+    hl_perp: BABA
+    hl_spot: null
+    sector: equity
+
+  - ticker: MU
+    name: Micron
+    binance_f: MUUSDT
+    binance_s: null
+    hl_perp: MU
+    hl_spot: null
+    sector: equity
+
+  - ticker: CRCL
+    name: Circle
+    binance_f: CRCLUSDT
+    binance_s: null
+    hl_perp: CRCL
+    hl_spot: null
+    sector: equity
+
+  # TradFi perps on Binance only (no Hyperliquid equivalent)
+  - ticker: JPM
+    name: JPMorgan
+    binance_f: JPMUSDT
+    binance_s: null
+    hl_perp: null
+    hl_spot: null
+    sector: equity
+
+  - ticker: TSM
+    name: TSMC
+    binance_f: TSMUSDT
+    binance_s: null
+    hl_perp: null
+    hl_spot: null
+    sector: equity
+
+  - ticker: ARM
+    name: Arm Holdings
+    binance_f: ARMUSDT
+    binance_s: null
+    hl_perp: null
+    hl_spot: null
+    sector: equity
+
+  - ticker: QCOM
+    name: Qualcomm
+    binance_f: QCOMUSDT
+    binance_s: null
+    hl_perp: null
+    hl_spot: null
+    sector: equity
+
+  # Indices (Hyperliquid only)
+  - ticker: SPCX
+    name: S&P 500 (CME)
+    binance_f: null
+    binance_s: null
+    hl_perp: SPCX
+    hl_spot: null
+    sector: index
+
+  - ticker: SP500
+    name: S&P 500
+    binance_f: null
+    binance_s: null
+    hl_perp: SP500
+    hl_spot: null
+    sector: index
+
+  - ticker: XYZ100
+    name: XYZ 100
+    binance_f: null
+    binance_s: null
+    hl_perp: XYZ100
+    hl_spot: null
+    sector: index
+
+  # Crypto reference (excluded from trading whitelists)
+  - ticker: SPX
+    name: SPX6900 memecoin
+    binance_f: null
+    binance_s: null
+    hl_perp: SPX
+    hl_spot: SPX
+    sector: crypto
+
+
+# ---------------------------------------------------------------------------
+# Scoring weights — change when you want different signal emphasis
+# ---------------------------------------------------------------------------
+weights:
+  funding_mean: 0.30    # normalized to 0.001 max
+  persistence: 0.25     # % positive intervals
+  volatility: -0.15     # std dev penalty
+  oi_stability: 0.15    # 1 - CV of OI
+  spread_cost: -0.10    # bps penalty
+  slippage: -0.05       # proportional to spread
+
+
+# ---------------------------------------------------------------------------
+# Fee model — retail tier maker/taker
+# ---------------------------------------------------------------------------
+fees:
+  binance_maker: 0.0002       # 0.02%
+  binance_taker: 0.0005       # 0.05%
+  hyperliquid_maker: 0.0000   # 0% maker
+  hyperliquid_taker: 0.00035  # 0.035%
+  slippage: 0.0003            # 0.03%
+  spread_cost: 0.0002         # 0.02%
+
+
+# ---------------------------------------------------------------------------
+# Strategy parameters
+# ---------------------------------------------------------------------------
+strategy:
+  # Funding frequency
+  funding_intervals_per_day: 3    # every 8h
+  # Data collection
+  funding_lookback_hours: 24      # how far back to fetch rates
+  min_oi_usd: 10_000_000          # $10M minimum open interest to score
+  top_n_symbols: 50               # max symbols shown in score table
+  min_apy_threshold: 10.0         # default report APY filter
+  # Risk
+  max_concurrent_positions: 5     # max open positions in PM account
+  min_notional: 5.50              # minimum order size in USDT
+  default_leverage: 1             # leverage set on PM account init
+
+
+# ---------------------------------------------------------------------------
+# Network
+# ---------------------------------------------------------------------------
+network:
+  binance_proxy: "http://127.0.0.1:7897"   # Clash Meta mixed port
+  binance_futures_base: "https://fapi.binance.com"
+  hyperliquid_api: "https://api.hyperliquid.xyz"
+  # Hip-3 namespace prefix for equity perps on Hyperliquid
+  hip3_prefix: "xyz:"

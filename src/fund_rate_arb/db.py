@@ -46,6 +46,48 @@ CREATE INDEX IF NOT EXISTS idx_oi_snapshots_symbol
 
 CREATE INDEX IF NOT EXISTS idx_spread_data_symbol
     ON spread_data(symbol, exchange, timestamp);
+
+CREATE TABLE IF NOT EXISTS positions (
+    id INTEGER PRIMARY KEY,
+    symbol TEXT NOT NULL,
+    exchange TEXT NOT NULL,
+    side TEXT NOT NULL,
+    contracts REAL NOT NULL,
+    entry_price REAL NOT NULL,
+    current_price REAL DEFAULT 0,
+    unrealized_pnl REAL DEFAULT 0,
+    margin_used REAL DEFAULT 0,
+    leverage INTEGER DEFAULT 1,
+    opened_at TEXT NOT NULL,
+    updated_at TEXT,
+    status TEXT DEFAULT 'open'
+);
+
+CREATE TABLE IF NOT EXISTS trades (
+    id INTEGER PRIMARY KEY,
+    order_id TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    exchange TEXT NOT NULL,
+    side TEXT NOT NULL,
+    type TEXT NOT NULL,
+    amount REAL NOT NULL,
+    price REAL,
+    filled REAL DEFAULT 0,
+    average REAL,
+    status TEXT NOT NULL,
+    position_side TEXT,
+    cost REAL,
+    fee REAL,
+    pnl REAL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    UNIQUE(order_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_positions_symbol
+    ON positions(symbol, status);
+
+CREATE INDEX IF NOT EXISTS idx_trades_symbol
+    ON trades(symbol, created_at);
 """
 
 
@@ -175,6 +217,86 @@ def query_all_latest(
                        AND f.exchange = latest.exchange
                        AND f.timestamp = latest.max_ts"""
             )
+        return [dict(row) for row in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def insert_position(db_path: str, row: tuple) -> int:
+    """Insert a new open position."""
+    conn = get_connection(db_path)
+    try:
+        conn.execute(
+            """INSERT INTO positions
+               (symbol, exchange, side, contracts, entry_price, current_price,
+                unrealized_pnl, margin_used, leverage, opened_at, status)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            row,
+        )
+        conn.commit()
+        return conn.total_changes
+    finally:
+        conn.close()
+
+
+def update_position(db_path: str, symbol: str, side: str, **kwargs) -> None:
+    if not kwargs:
+        return
+    sets = ", ".join(f"{k} = ?" for k in kwargs)
+    values = list(kwargs.values()) + [symbol, side, "open"]
+    conn = get_connection(db_path)
+    try:
+        conn.execute(f"UPDATE positions SET {sets} WHERE symbol = ? AND side = ? AND status = 'open'", values)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def close_position(db_path: str, symbol: str, side: str) -> None:
+    conn = get_connection(db_path)
+    try:
+        conn.execute(
+            "UPDATE positions SET status = 'closed', updated_at = datetime('now') WHERE symbol = ? AND side = ? AND status = 'open'",
+            (symbol, side),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def query_open_positions(db_path: str) -> list[dict]:
+    conn = get_connection(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        cur = conn.execute("SELECT * FROM positions WHERE status = 'open' ORDER BY opened_at DESC")
+        return [dict(row) for row in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def insert_trade(db_path: str, row: tuple) -> int:
+    conn = get_connection(db_path)
+    try:
+        conn.execute(
+            """INSERT OR IGNORE INTO trades
+               (order_id, symbol, exchange, side, type, amount, price, filled, average, status, position_side, cost, fee, pnl, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            row,
+        )
+        conn.commit()
+        return conn.total_changes
+    finally:
+        conn.close()
+
+
+def query_recent_trades(db_path: str, limit: int = 20) -> list[dict]:
+    conn = get_connection(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        cur = conn.execute(
+            "SELECT * FROM trades ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        )
         return [dict(row) for row in cur.fetchall()]
     finally:
         conn.close()
