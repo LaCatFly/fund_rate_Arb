@@ -68,6 +68,37 @@ async def scan_exchange(collector, db_path: str) -> None:
             logger.exception("TG send failed")
 
 
+async def run_strategy_tick(db_path: str) -> None:
+    """Run FundingCarry strategy: select, execute, monitor, exit."""
+    from fund_rate_arb.execution.paper import PaperExecutor
+    from fund_rate_arb.risk.exit_engine import (
+        APYThresholdRule,
+        ExitRuleEngine,
+        FundingFlipRule,
+        TimeBasedRule,
+    )
+    from fund_rate_arb.strategies.funding_carry import FundingCarry
+
+    strategy = FundingCarry(
+        executor=PaperExecutor(notional_per_leg=200.0),
+        exit_engine=ExitRuleEngine([
+            TimeBasedRule(max_hold_hours=168),
+            FundingFlipRule(consecutive_neg=3),
+            APYThresholdRule(min_apy=10.0),
+        ]),
+        max_positions=5,
+        min_apy=APY_THRESHOLD,
+    )
+
+    result = await strategy.tick(db_path)
+    if result.positions_opened or result.positions_closed:
+        logger.info("Strategy: +%d opened, -%d closed, %d signals",
+                     result.positions_opened, result.positions_closed,
+                     result.signals_generated)
+    for err in result.errors:
+        logger.error("Strategy error: %s", err)
+
+
 async def main() -> None:
     init_db(DB_PATH)
 
@@ -90,10 +121,14 @@ async def main() -> None:
     logger.info("Starting funding rate signal scanner")
     logger.info("Threshold: %.1f%% APY, Max spread: %.1f bps", APY_THRESHOLD, MIN_SPREAD_BPS)
 
+    async def _bn_scan_with_strategy():
+        await scan_exchange(bn_collector, DB_PATH)
+        await run_strategy_tick(DB_PATH)
+
     try:
         await scheduler.run(
             hl_callback=lambda: scan_exchange(hl_collector, DB_PATH),
-            bn_callback=lambda: scan_exchange(bn_collector, DB_PATH),
+            bn_callback=lambda: _bn_scan_with_strategy(),
         )
     except asyncio.CancelledError:
         pass
