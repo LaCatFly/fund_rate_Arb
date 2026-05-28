@@ -90,6 +90,24 @@ ssh tvps "journalctl --user -u fund-rate-scan -f"
 
 **TG markdown:** `escape_md_v2()` escapes `\` first, skips content inside triple-backtick code blocks.
 
+## Deployment Workflow
+
+**Rule:** All code changes → commit → push to GitHub → deploy to VPS. Secrets (.env) → scp/ssh directly to VPS, **NEVER commit**.
+
+**Deploy command:**
+```bash
+# Push code changes
+git add ... && git commit -m "..." && git push
+
+# Deploy to VPS
+ssh tvps "cd ~/fund_rate_arb && git pull && ~/.local/bin/uv sync && systemctl --user restart fund-rate-scan"
+
+# Push secrets to VPS (NEVER commit)
+scp src/fund_rate_arb/.env tvps:~/fund_rate_arb/.env
+```
+
+**Binance API key:** IP-whitelisted to VPS only (139.180.196.53). Works on VPS, fails elsewhere.
+
 ## Testing
 
 pytest with asyncio auto mode. Run: `uv run pytest -v`
