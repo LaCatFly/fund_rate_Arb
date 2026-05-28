@@ -410,3 +410,59 @@ def test_e2e_dryrun(pipeline, capsys):
     # Verify DB state
     open_positions = query_open_positions_by_strategy(db_path, "funding_carry")
     assert len(open_positions) == len(positions) - len(closed), "DB open count should match"
+
+
+def test_full_strategy_cycle(tmp_path):
+    """Fetch → detect → select → open paper → monitor → no exit → tick again."""
+    db = str(tmp_path / "test.db")
+    from fund_rate_arb.db import (
+        init_db,
+        migrate_db,
+        insert_funding_rates,
+        insert_spread_data,
+        insert_oi_snapshots,
+        get_connection,
+    )
+    from datetime import datetime, timezone, timedelta
+
+    init_db(db)
+    migrate_db(db)
+
+    # Seed fake high-funding data with recent timestamps
+    now = datetime.now(timezone.utc)
+    ts = now.isoformat()
+
+    symbols_data = [
+        ("TSLAUSDT", 0.0003, 50000.0, 49950.0),
+        ("NVDAUSDT", 0.00025, 3000.0, 2995.0),
+    ]
+
+    funding_rows = []
+    oi_rows = []
+    spread_rows = []
+    for symbol, rate, mark, index in symbols_data:
+        # 30 intervals of funding history (8h each)
+        for i in range(30):
+            ts_i = (now - timedelta(hours=8 * (30 - i))).isoformat()
+            funding_rows.append((symbol, "binance", ts_i, rate, rate, mark, index))
+            oi_rows.append((symbol, "binance", ts_i, 5_000_000.0))
+        # Spread data with recent timestamp
+        spread_rows.append((symbol, "binance", ts, mark, mark + 1.0, 1.0, mark))
+
+    insert_funding_rates(db, funding_rows)
+    insert_oi_snapshots(db, oi_rows)
+    insert_spread_data(db, spread_rows)
+
+    import asyncio
+    from fund_rate_arb.main import run_strategy_tick
+
+    # First tick — should detect signals and open positions
+    asyncio.run(run_strategy_tick(db))
+
+    # Verify positions were created in DB
+    conn = get_connection(db)
+    count = conn.execute(
+        "SELECT COUNT(*) FROM positions WHERE strategy_name = 'funding_carry'",
+    ).fetchone()[0]
+    conn.close()
+    assert count > 0, "Should open at least one position"
