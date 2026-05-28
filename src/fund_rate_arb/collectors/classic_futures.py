@@ -23,9 +23,13 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ClassicAccountInfo:
     """USDT-M futures account snapshot."""
-    total_wallet_balance: float
-    available_balance: float
-    total_unrealized_profit: float
+    account_type: str = "CLASSIC"
+    total_account_balance: float = 0.0
+    total_maintenance_margin: float = 0.0
+    total_initial_margin: float = 0.0
+    total_margin_balance: float = 0.0
+    available_balance: float = 0.0
+    max_withdraw_amount: float = 0.0
     account_status: str = "NORMAL"
     positions: list[dict[str, Any]] = field(default_factory=list)
 
@@ -80,9 +84,12 @@ class ClassicFuturesCollector(BaseCollector):
     def fetch_account_info(self) -> ClassicAccountInfo:
         info = self.exchange.fapiprivatev2_get_account()
         return ClassicAccountInfo(
-            total_wallet_balance=float(info.get("totalWalletBalance", 0)),
+            total_account_balance=float(info.get("totalWalletBalance", 0)),
             available_balance=float(info.get("availableBalance", 0)),
-            total_unrealized_profit=float(info.get("totalUnrealizedProfit", 0)),
+            total_margin_balance=float(info.get("totalMarginBalance", 0)),
+            total_initial_margin=float(info.get("totalInitialMargin", 0)),
+            total_maintenance_margin=float(info.get("totalMaintMargin", 0)),
+            max_withdraw_amount=float(info.get("availableBalance", 0)),
         )
 
     def fetch_balance(self) -> dict[str, float]:
