@@ -17,10 +17,11 @@ from fund_rate_arb.db import (
     insert_spread_data,
     query_all_latest,
     query_funding_history,
+    get_connection,
 )
 from fund_rate_arb.collectors import BinanceCollector, HyperliquidCollector
 from fund_rate_arb.scoring import compute_quality_score
-from fund_rate_arb.cli.report import generate_report, display_table, save_markdown
+from fund_rate_arb.cli.report import generate_report, display_table, save_report
 
 console = Console()
 
@@ -37,9 +38,10 @@ def cli(ctx: click.Context, db_path: str) -> None:
 
 @cli.command()
 @click.option("--min-apy", default=10.0, help="Minimum APY% threshold")
-@click.option("--output", "-o", default="reports/funding-report-latest.md", help="Output markdown path")
+@click.option("--output", "-o", default="reports/funding-report-latest.md", help="Output path")
+@click.option("--compact/--full", default=False, help="Compact single-line format")
 @click.pass_context
-def report(ctx: click.Context, min_apy: float, output: str) -> None:
+def report(ctx: click.Context, min_apy: float, output: str, compact: bool) -> None:
     """Generate funding rate report for symbols above APY threshold."""
     db_path = ctx.obj["db_path"]
     results = generate_report(db_path, min_apy, output)
@@ -47,7 +49,7 @@ def report(ctx: click.Context, min_apy: float, output: str) -> None:
         console.print(f"[yellow]No candidates with APY > {min_apy}%[/]")
         return
     display_table(results)
-    save_markdown(results, output)
+    save_report(results, output, compact=compact)
 
 
 @cli.command()
@@ -259,6 +261,89 @@ def history(ctx: click.Context, symbol: str, exchange: str, days: int) -> None:
 
 
 @cli.command()
+@click.option("--min-apy", default=10.0, help="Minimum net APY% threshold")
+@click.option("--max-spread", default=10.0, help="Maximum spread in bps")
+@click.option("--output", "-o", default=None, help="Save output to file")
+@click.pass_context
+def signals(ctx: click.Context, min_apy: float, max_spread: float, output: str | None) -> None:
+    """Fetch data, detect & rank funding signals, print compact TG table."""
+    import asyncio, sqlite3, statistics, time
+    from datetime import datetime, timezone
+
+    async def _run():
+        all_funding, all_spreads = [], []
+        for coll in [BinanceCollector(), HyperliquidCollector()]:
+            console.print(f"[blue]Fetching {coll.exchange_name}...[/]")
+            f, o, s = await coll.fetch_all()
+            all_funding.extend(f); all_spreads.extend(s)
+            console.print(f"  [green]✓ {len(f)} rates, {len(s)} spreads[/]")
+
+        from fund_rate_arb.signal.detector import detect_signals
+        signals = detect_signals(all_funding, all_spreads,
+                                 apy_threshold=min_apy, max_spread_bps=max_spread)
+
+        if not signals:
+            console.print("[yellow]No signals found[/]")
+            return
+
+        # 72h history
+        conn = get_connection(ctx.obj["db_path"])
+        conn.row_factory = sqlite3.Row
+        cutoff = int(time.time() - 72 * 3600)
+        cutoff_iso = datetime.fromtimestamp(cutoff, timezone.utc).isoformat()
+        for s in signals:
+            ex = "binance" if s.exchange == "BN" else "hyperliquid"
+            rows = conn.execute(
+                "SELECT funding_rate FROM funding_rates "
+                "WHERE symbol=? AND exchange=? AND timestamp >= ? ORDER BY timestamp ASC",
+                (s.symbol + "USDT", ex, cutoff_iso),
+            ).fetchall()
+            rates = [r["funding_rate"] for r in rows]
+            if len(rates) >= 2:
+                s.avg_rate_72h = round(statistics.mean(rates), 8)
+                s.std_rate_72h = round(statistics.stdev(rates), 8)
+                s.positive_ratio_72h = round(
+                    sum(1 for r in rates if r > 0) / len(rates), 4)
+            # Score
+            cost_w = s.spread_bps / 100 * 52
+            net_w = s.apy_gross - cost_w
+            p = min(max(0.6 + s.positive_ratio_72h * 0.4, 0.4), 1.0)
+            if s.avg_rate_72h and s.std_rate_72h > 0:
+                vr = min(s.std_rate_72h / abs(s.avg_rate_72h), 1.0)
+            else:
+                vr = 0.3
+            vp = 1.0 - vr * 0.5
+            st = 1.05 if s.interval_h == 8 else 0.95
+            s.score_weekly = round(net_w * p * vp * st, 1)
+        conn.close()
+
+        signals.sort(key=lambda s: s.score_weekly, reverse=True)
+
+        # Print compact table
+        from fund_rate_arb.tg.formatter import format_signals
+        from fund_rate_arb.tg.models import Signal as TGSignal
+        tg_signals = [
+            TGSignal(exchange=s.exchange, symbol=s.symbol, apy_net=s.apy_net,
+                     apy_gross=s.apy_gross, cost=s.cost, basis_pct=s.basis_pct,
+                     spread_bps=s.spread_bps, interval_h=s.interval_h,
+                     avg_rate_72h=s.avg_rate_72h, std_rate_72h=s.std_rate_72h,
+                     positive_ratio_72h=s.positive_ratio_72h,
+                     score_daily=0.0, score_weekly=s.score_weekly)
+            for s in signals
+        ]
+        text = format_signals(tg_signals)
+        console.print(text)
+
+        if output:
+            from pathlib import Path
+            Path(output).parent.mkdir(parents=True, exist_ok=True)
+            Path(output).write_text(text + "\n")
+            console.print(f"[green]Saved to {output}[/]")
+
+    asyncio.run(_run())
+
+
+@cli.command()
 @click.pass_context
 def pm_status(ctx: click.Context) -> None:
     """Show portfolio margin account status, positions, and recent trades."""
@@ -411,3 +496,14 @@ def close(ctx: click.Context, symbol: str, side: str, amount: float) -> None:
 
     engine.record_trade(result)
     console.print("[green]Position closed, trade recorded[/]")
+
+
+@cli.command()
+@click.option("--db", "db_path", default="fund_rate_arb.db", help="SQLite database path")
+def scan(db_path: str) -> None:
+    """Run the continuous signal scanner (polling loop)."""
+    import os
+    from fund_rate_arb.main import main as scanner_main
+
+    os.environ["DB_PATH"] = db_path
+    asyncio.run(scanner_main())

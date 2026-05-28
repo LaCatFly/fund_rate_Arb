@@ -5,7 +5,7 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=<home>/fund_rate_arb
-ExecStart=<home>/.local/bin/uv run python -m fund_rate_arb.main
+ExecStart=<home>/.local/bin/uv run fund-rate-arb scan
 Restart=on-failure
 RestartSec=30
 StandardOutput=append:<home>/fund_rate_arb/logs/scan.log
