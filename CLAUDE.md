@@ -35,12 +35,16 @@ fund_rate_arb.db   — SQLite database (gitignored)
 ```bash
 uv sync              # Install deps
 uv run pytest        # Run tests
-uv run fund-rate-arb fetch --all          # Collect data from exchanges
-uv run fund-rate-arb score --top 20       # Score and rank
-uv run fund-rate-arb arb-opportunities    # Cross-exchange arb
-uv run fund-rate-arb strategy list        # List strategies
-uv run fund-rate-arb strategy run --name funding_carry  # One cycle
-uv run fund-rate-arb strategy status      # Open positions
+uv run fund-rate-arb fetch              # Collect data from exchanges
+uv run fund-rate-arb scan               # Continuous signal scanner (polling loop)
+uv run fund-rate-arb score --top 20     # Score and rank
+uv run fund-rate-arb signals            # Fetch + detect + print TG table
+uv run fund-rate-arb arb-opportunities  # Cross-exchange arb
+uv run fund-rate-arb pm-status          # Portfolio margin account status
+uv run fund-rate-arb trade              # Execute single PM order
+uv run fund-rate-arb close              # Close PM position
+uv run fund-rate-arb report --min-apy 10 # Generate markdown report
+uv run fund-rate-arb history -s NVDA    # Funding rate history
 ```
 
 ## Data Flow
@@ -57,13 +61,35 @@ uv run fund-rate-arb strategy status      # Open positions
 - **`settings.yaml`** is the single source of truth for operational params (strategies, thresholds, exit rules). Code defaults only when file is absent.
 - **`settings.yaml` is gitignored** — `settings.example.yaml` is the committed template.
 - **Paper mode first** — `execution.paper_mode: true` in settings before any live orders.
+- **`.env` uses `TG_BOT_TOKEN` / `TG_CHAT_ID`** for Telegram alerts. Settings `extra="ignore"` so `APY_THRESHOLD` etc. pass through to `main.py` via `os.environ`.
+- **VPS proxy = null** — Japan VPS (Vultr 139.180.196.53) accesses Binance directly. Local dev uses `http://127.0.0.1:7897`.
+
+## Deployment
+
+**VPS:** Vultr Japan, Ubuntu 22.04, user `openclaw`, hostname `vultr`, SSH alias `tvps`
+
+**Service:** user-level systemd (`systemctl --user`), no sudo needed
+
+**Files:**
+- `deploy/fund-rate-scan.service` — systemd unit template
+- `deploy/install.sh` — installs units to `~/.config/systemd/user/`
+- `~/.env` — TG credentials + signal thresholds
+- `~/settings.yaml` — operational params (binance_proxy: null on VPS)
+- `~/logs/scan.log` — application log
+
+**Daily deploy:**
+```bash
+ssh tvps "cd ~/fund_rate_arb && git pull && ~/.local/bin/uv sync && systemctl --user restart fund-rate-scan"
+```
+
+**Monitor:**
+```bash
+ssh tvps "systemctl --user status fund-rate-scan"
+ssh tvps "journalctl --user -u fund-rate-scan -f"
+```
+
+**TG markdown:** `escape_md_v2()` escapes `\` first, skips content inside triple-backtick code blocks.
 
 ## Testing
 
 pytest with asyncio auto mode. Run: `uv run pytest -v`
-
-## Environment
-
-- `BINANCE_PROXY`: HTTP proxy for Binance requests (default `http://127.0.0.1:7897`)
-- `BINANCE_API_KEY` / `BINANCE_SECRET`: Required for portfolio margin execution
-- `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID`: Required for TG alerts
