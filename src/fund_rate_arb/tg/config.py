@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     tg_chat_id: str = ""
     tg_parse_mode: str = "MarkdownV2"
 
-    model_config = {"env_prefix": "", "env_file": ".env"}
+    model_config = {"env_prefix": "", "env_file": ".env", "extra": "ignore"}
 
 
 settings = Settings()
