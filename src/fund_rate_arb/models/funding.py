@@ -55,6 +55,7 @@ class SpreadData(BaseModel):
     bid: float
     ask: float
     spread_bps: float  # spread in basis points
+    mark_price: float | None = None  # mid price = (bid + ask) / 2
 
     def to_db_row(self) -> tuple:
         return (
@@ -64,6 +65,7 @@ class SpreadData(BaseModel):
             self.bid,
             self.ask,
             self.spread_bps,
+            self.mark_price,
         )
 
 

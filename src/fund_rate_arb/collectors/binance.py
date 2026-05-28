@@ -55,7 +55,7 @@ class BinanceCollector(BaseCollector):
         """GET /fapi/v1/openInterest — query OI for each whitelisted symbol."""
         now = datetime.utcnow()
         results = []
-        async with httpx.AsyncClient(base_url=BINANCE_FUTURES_BASE, proxy=BINANCE_PROXY) as client:
+        async with httpx.AsyncClient(base_url=BINANCE_FUTURES_BASE) as client:
             tasks = []
             for sym in WHITELIST_BINANCE:
                 tasks.append(self._fetch_single_oi(client, sym, now))

@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS spread_data (
     bid REAL NOT NULL,
     ask REAL NOT NULL,
     spread_bps REAL NOT NULL,
+    mark_price REAL,
     UNIQUE(symbol, exchange, timestamp)
 );
 
@@ -102,10 +103,15 @@ def get_connection(db_path: str = "fund_rate_arb.db") -> sqlite3.Connection:
 
 
 def init_db(db_path: str = "fund_rate_arb.db") -> None:
-    """Create tables if they don't exist."""
+    """Create tables if they don't exist and run migrations."""
     conn = get_connection(db_path)
     try:
         conn.executescript(SCHEMA)
+        # Migration: add mark_price to spread_data
+        try:
+            conn.execute("ALTER TABLE spread_data ADD COLUMN mark_price REAL")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
     finally:
         conn.close()
 
@@ -190,15 +196,15 @@ def insert_oi_snapshots(
 
 def insert_spread_data(
     db_path: str,
-    rows: list[tuple[str, str, str, float, float, float]],
+    rows: list[tuple[str, str, str, float, float, float, float | None]],
 ) -> int:
     """Batch insert spread data. Returns inserted count."""
     conn = get_connection(db_path)
     try:
         conn.executemany(
             """INSERT OR IGNORE INTO spread_data
-               (symbol, exchange, timestamp, bid, ask, spread_bps)
-               VALUES (?, ?, ?, ?, ?, ?)""",
+               (symbol, exchange, timestamp, bid, ask, spread_bps, mark_price)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
             rows,
         )
         conn.commit()

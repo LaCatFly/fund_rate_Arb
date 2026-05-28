@@ -127,16 +127,29 @@ class HyperliquidCollector(BaseCollector):
             )
             resp.raise_for_status()
             book = resp.json()
-            if not isinstance(book, list) or len(book) < 2:
+
+            # Handle both response formats:
+            # Old: [bids_list, asks_list]
+            # New: {"levels": [[bids_list], [asks_list]], ...}
+            if isinstance(book, dict):
+                levels = book.get("levels")
+                if not isinstance(levels, list) or len(levels) < 2:
+                    return None
+                bids_raw, asks_raw = levels[0], levels[1]
+            elif isinstance(book, list) and len(book) >= 2:
+                bids_raw, asks_raw = book[0], book[1]
+            else:
                 return None
-            bids = [b for b in book[0] if float(b.get("px", 0)) > 0]
-            asks = [a for a in book[1] if float(a.get("px", 0)) > 0]
+
+            bids = [b for b in bids_raw if float(b.get("px", 0)) > 0]
+            asks = [a for a in asks_raw if float(a.get("px", 0)) > 0]
             if not bids or not asks:
                 return None
             best_bid = float(bids[0]["px"])
             best_ask = float(asks[0]["px"])
             if best_bid <= 0 or best_ask <= 0:
                 return None
+            mid_price = (best_bid + best_ask) / 2
             spread_bps = ((best_ask - best_bid) / best_bid) * 10000
             return SpreadData(
                 symbol=f"{ticker}USDT",
@@ -145,6 +158,7 @@ class HyperliquidCollector(BaseCollector):
                 bid=best_bid,
                 ask=best_ask,
                 spread_bps=round(spread_bps, 2),
+                mark_price=round(mid_price, 2),
             )
         except Exception:
             return None
