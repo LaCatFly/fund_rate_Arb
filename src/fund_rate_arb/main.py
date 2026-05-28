@@ -106,8 +106,9 @@ def run() -> None:
     from pathlib import Path
     from dotenv import load_dotenv
 
-    for candidate in [Path(__file__).resolve().parent.parent / ".env",
-                      Path(__file__).resolve().parent / ".env"]:
+    # Load .env from cwd or package parent (supports both dev install and CLI)
+    for candidate in [Path.cwd() / ".env",
+                      Path(__file__).resolve().parent.parent / ".env"]:
         if candidate.exists():
             load_dotenv(candidate)
             break
