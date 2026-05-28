@@ -9,7 +9,9 @@ from fund_rate_arb.data.monitors import detect_oi_spike, detect_funding_regime_s
 from fund_rate_arb.data.retriever import query_funding_window, query_oi_window
 from fund_rate_arb.execution.paper import PaperExecutor
 from fund_rate_arb.models.funding import (
-    CarryPosition, ExitSignal, MarketData,
+    CarryPosition,
+    ExitSignal,
+    MarketData,
 )
 from fund_rate_arb.risk.exit_engine import ExitRuleEngine
 from fund_rate_arb.signal.detector import Signal
@@ -66,7 +68,9 @@ class FundingCarry(BaseStrategy):
         return result
 
     def select(
-        self, signals: list[Signal], open_positions: list[CarryPosition],
+        self,
+        signals: list[Signal],
+        open_positions: list[CarryPosition],
     ) -> list[Signal]:
         available = self.max_positions - len(open_positions)
         if available <= 0:
@@ -77,11 +81,14 @@ class FundingCarry(BaseStrategy):
         return candidates[:available]
 
     async def open_position(
-        self, signal: Signal, db_path: str,
+        self,
+        signal: Signal,
+        db_path: str,
     ) -> CarryPosition | None:
         mark_price = getattr(signal, "_mark_price", 0)
         if mark_price <= 0:
             from fund_rate_arb.db import get_connection
+
             conn = get_connection(db_path)
             try:
                 row = conn.execute(
@@ -100,12 +107,18 @@ class FundingCarry(BaseStrategy):
 
         pos = self.executor.open_position(signal, mark_price=mark_price)
         if pos:
-            logger.info("Opened SHORT %s: %.4f contracts @ %.2f",
-                        pos.symbol, pos.contracts, pos.entry_price)
+            logger.info(
+                "Opened SHORT %s: %.4f contracts @ %.2f",
+                pos.symbol,
+                pos.contracts,
+                pos.entry_price,
+            )
         return pos
 
     async def monitor_position(
-        self, position: CarryPosition, db_path: str,
+        self,
+        position: CarryPosition,
+        db_path: str,
     ) -> list[ExitSignal]:
         symbol = position.symbol
         exchange = "binance"
@@ -127,33 +140,42 @@ class FundingCarry(BaseStrategy):
 
         oi_spike = detect_oi_spike(oi_8h)
         if oi_spike.triggered:
-            exits.append(ExitSignal(
-                position_execution_id=position.execution_id,
-                rule_type="oi_spike",
-                severity="warning",
-                message=oi_spike.message,
-            ))
+            exits.append(
+                ExitSignal(
+                    position_execution_id=position.execution_id,
+                    rule_type="oi_spike",
+                    severity="warning",
+                    message=oi_spike.message,
+                )
+            )
 
         if funding_48h:
             regime_shift = detect_funding_regime_shift(
-                funding_48h[-3:], funding_48h[:-3],
+                funding_48h[-3:],
+                funding_48h[:-3],
             )
             if regime_shift.triggered:
-                exits.append(ExitSignal(
-                    position_execution_id=position.execution_id,
-                    rule_type="regime_shift",
-                    severity="warning",
-                    message=regime_shift.message,
-                ))
+                exits.append(
+                    ExitSignal(
+                        position_execution_id=position.execution_id,
+                        rule_type="regime_shift",
+                        severity="warning",
+                        message=regime_shift.message,
+                    )
+                )
 
         for e in exits:
-            logger.info("Exit signal for %s: [%s] %s",
-                        position.symbol, e.severity, e.message)
+            logger.info(
+                "Exit signal for %s: [%s] %s", position.symbol, e.severity, e.message
+            )
 
         return exits
 
     async def exit_position(
-        self, position: CarryPosition, reason: str, db_path: str,
+        self,
+        position: CarryPosition,
+        reason: str,
+        db_path: str,
     ) -> bool:
         success = self.executor.close_position(position, reason)
         if success:
@@ -165,6 +187,7 @@ class FundingCarry(BaseStrategy):
 
     def _load_open_positions(self, db_path: str) -> list[CarryPosition]:
         from fund_rate_arb.db import query_open_positions_by_strategy
+
         rows = query_open_positions_by_strategy(db_path, self.name)
         return [
             CarryPosition(
@@ -188,21 +211,37 @@ class FundingCarry(BaseStrategy):
 
     def _save_position(self, position: CarryPosition, db_path: str) -> None:
         from fund_rate_arb.db import insert_strategy_position
+
         row = (
-            position.symbol, position.exchange, position.side,
-            position.contracts, position.entry_price, position.entry_price,
-            0.0, position.notional_usdt, 1, position.opened_at,
-            position.status, self.name, position.entry_basis,
-            position.cumulative_funding, position.max_break_even_days,
+            position.symbol,
+            position.exchange,
+            position.side,
+            position.contracts,
+            position.entry_price,
+            position.entry_price,
+            0.0,
+            position.notional_usdt,
+            1,
+            position.opened_at,
+            position.status,
+            self.name,
+            position.entry_basis,
+            position.cumulative_funding,
+            position.max_break_even_days,
         )
         position.execution_id = insert_strategy_position(db_path, row)
 
     def _update_position_status(
-        self, position: CarryPosition, db_path: str,
+        self,
+        position: CarryPosition,
+        db_path: str,
     ) -> None:
         from fund_rate_arb.db import close_strategy_position
+
         close_strategy_position(
-            db_path, position.execution_id, position.close_reason or "",
+            db_path,
+            position.execution_id,
+            position.close_reason or "",
         )
 
     async def _fetch_signals(self, db_path: str) -> list[Signal]:
@@ -219,20 +258,26 @@ class FundingCarry(BaseStrategy):
         rates = []
         spreads = []
         for row in data:
-            rates.append(FundingRate(
-                symbol=row["symbol"], exchange="binance",
-                timestamp=datetime.now(timezone.utc),
-                funding_rate=row["funding_rate"],
-                mark_price=row.get("mark_price"),
-                index_price=row.get("index_price"),
-            ))
-            if row.get("spread_bps", 0) > 0:
-                spreads.append(SpreadData(
-                    symbol=row["symbol"], exchange="binance",
+            rates.append(
+                FundingRate(
+                    symbol=row["symbol"],
+                    exchange="binance",
                     timestamp=datetime.now(timezone.utc),
-                    bid=row.get("mark_price", 0) or 0,
-                    ask=row.get("mark_price", 0) or 0,
-                    spread_bps=row["spread_bps"],
-                ))
+                    funding_rate=row["funding_rate"],
+                    mark_price=row.get("mark_price"),
+                    index_price=row.get("index_price"),
+                )
+            )
+            if row.get("spread_bps", 0) > 0:
+                spreads.append(
+                    SpreadData(
+                        symbol=row["symbol"],
+                        exchange="binance",
+                        timestamp=datetime.now(timezone.utc),
+                        bid=row.get("mark_price", 0) or 0,
+                        ask=row.get("mark_price", 0) or 0,
+                        spread_bps=row["spread_bps"],
+                    )
+                )
 
         return detect_signals(rates, spreads, apy_threshold=self.min_apy)

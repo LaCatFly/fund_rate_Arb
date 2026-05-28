@@ -12,7 +12,9 @@ class ExitRule(ABC):
     """Single exit condition."""
 
     @abstractmethod
-    def check(self, position: CarryPosition, market: MarketData) -> list[ExitSignal]: ...
+    def check(
+        self, position: CarryPosition, market: MarketData
+    ) -> list[ExitSignal]: ...
 
 
 class TimeBasedRule(ExitRule):
@@ -30,12 +32,14 @@ class TimeBasedRule(ExitRule):
         held_hours = (datetime.now(timezone.utc) - opened).total_seconds() / 3600
 
         if held_hours >= self.max_hold_hours:
-            return [ExitSignal(
-                position_execution_id=position.execution_id,
-                rule_type="time_based",
-                severity="critical",
-                message=f"Position held {held_hours:.0f}h, exceeds {self.max_hold_hours}h max",
-            )]
+            return [
+                ExitSignal(
+                    position_execution_id=position.execution_id,
+                    rule_type="time_based",
+                    severity="critical",
+                    message=f"Position held {held_hours:.0f}h, exceeds {self.max_hold_hours}h max",
+                )
+            ]
         return []
 
 
@@ -46,17 +50,19 @@ class FundingFlipRule(ExitRule):
         self.consecutive_neg = consecutive_neg
 
     def check(self, position: CarryPosition, market: MarketData) -> list[ExitSignal]:
-        recent = market.funding_history_48h[-self.consecutive_neg:]
+        recent = market.funding_history_48h[-self.consecutive_neg :]
         if len(recent) < self.consecutive_neg:
             return []
 
         if all(r < 0 for r in recent):
-            return [ExitSignal(
-                position_execution_id=position.execution_id,
-                rule_type="funding_flip",
-                severity="critical",
-                message=f"Funding negative for {self.consecutive_neg} consecutive periods",
-            )]
+            return [
+                ExitSignal(
+                    position_execution_id=position.execution_id,
+                    rule_type="funding_flip",
+                    severity="critical",
+                    message=f"Funding negative for {self.consecutive_neg} consecutive periods",
+                )
+            ]
         return []
 
 
@@ -74,12 +80,14 @@ class APYThresholdRule(ExitRule):
         apy = annualized_funding_apy(avg_funding) * 100  # to percentage
 
         if apy < self.min_apy:
-            return [ExitSignal(
-                position_execution_id=position.execution_id,
-                rule_type="apy_threshold",
-                severity="warning",
-                message=f"APY {apy:.1f}% below {self.min_apy}% minimum",
-            )]
+            return [
+                ExitSignal(
+                    position_execution_id=position.execution_id,
+                    rule_type="apy_threshold",
+                    severity="warning",
+                    message=f"APY {apy:.1f}% below {self.min_apy}% minimum",
+                )
+            ]
         return []
 
 
@@ -90,7 +98,9 @@ class ExitRuleEngine:
         self.rules = rules
 
     def check_all(
-        self, position: CarryPosition, market: MarketData,
+        self,
+        position: CarryPosition,
+        market: MarketData,
     ) -> list[ExitSignal]:
         signals = []
         for rule in self.rules:

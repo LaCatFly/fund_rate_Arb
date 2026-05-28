@@ -16,17 +16,22 @@ from fund_rate_arb.collectors.portfolio_margin import (
 
 @pytest.fixture
 def mock_env():
-    with patch.dict(os.environ, {
-        "BINANCE_API_KEY": "test_api_key",
-        "BINANCE_SECRET": "test_secret",
-        "BINANCE_PROXY": "",
-    }):
+    with patch.dict(
+        os.environ,
+        {
+            "BINANCE_API_KEY": "test_api_key",
+            "BINANCE_SECRET": "test_secret",
+            "BINANCE_PROXY": "",
+        },
+    ):
         yield
 
 
 @pytest.fixture
 def collector(mock_env):
-    with patch("fund_rate_arb.collectors.portfolio_margin.ccxt.binance") as mock_binance:
+    with patch(
+        "fund_rate_arb.collectors.portfolio_margin.ccxt.binance"
+    ) as mock_binance:
         mock_exchange = MagicMock()
         mock_binance.return_value = mock_exchange
         c = PortfolioMarginCollector()
@@ -82,7 +87,9 @@ class TestOrderResult:
 
 class TestPortfolioMarginCollectorInit:
     def test_missing_api_key_raises(self):
-        with patch.dict(os.environ, {"BINANCE_API_KEY": "", "BINANCE_SECRET": "secret"}):
+        with patch.dict(
+            os.environ, {"BINANCE_API_KEY": "", "BINANCE_SECRET": "secret"}
+        ):
             with pytest.raises(ValueError, match="BINANCE_API_KEY and BINANCE_SECRET"):
                 PortfolioMarginCollector()
 
@@ -97,7 +104,9 @@ class TestPortfolioMarginCollectorInit:
             assert c.exchange_name == "binance_pm"
 
     def test_init_sets_exchange_config(self, mock_env):
-        with patch("fund_rate_arb.collectors.portfolio_margin.ccxt.binance") as mock_binance:
+        with patch(
+            "fund_rate_arb.collectors.portfolio_margin.ccxt.binance"
+        ) as mock_binance:
             mock_instance = MagicMock()
             mock_binance.return_value = mock_instance
             c = PortfolioMarginCollector()
@@ -111,7 +120,9 @@ class TestPortfolioMarginCollectorInit:
             assert call_kwargs["options"]["papi"] is True
 
     def test_lazy_exchange(self, mock_env):
-        with patch("fund_rate_arb.collectors.portfolio_margin.ccxt.binance") as mock_binance:
+        with patch(
+            "fund_rate_arb.collectors.portfolio_margin.ccxt.binance"
+        ) as mock_binance:
             c = PortfolioMarginCollector()
             assert c._exchange is None
             _ = c.exchange
@@ -119,7 +130,9 @@ class TestPortfolioMarginCollectorInit:
             mock_binance.assert_called_once()
 
     def test_set_leverage_on_all_usdt_swaps(self, mock_env):
-        with patch("fund_rate_arb.collectors.portfolio_margin.ccxt.binance") as mock_binance:
+        with patch(
+            "fund_rate_arb.collectors.portfolio_margin.ccxt.binance"
+        ) as mock_binance:
             mock_instance = MagicMock()
             mock_instance.markets = {
                 "BTC/USDT:USDT": {"swap": True},
@@ -132,9 +145,7 @@ class TestPortfolioMarginCollectorInit:
             c = PortfolioMarginCollector()
             _ = c.exchange
 
-            calls = [
-                call[0] for call in mock_instance.set_leverage.call_args_list
-            ]
+            calls = [call[0] for call in mock_instance.set_leverage.call_args_list]
             assert len(calls) == 3
             assert (1, "BTC/USDT:USDT") in calls
             assert (1, "ETH/USDT:USDT") in calls

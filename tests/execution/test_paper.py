@@ -9,8 +9,14 @@ from fund_rate_arb.models.funding import CarryPosition
 @pytest.fixture
 def btc_signal():
     return Signal(
-        exchange="BN", symbol="BTC", apy_net=25.0, apy_gross=26.0,
-        cost=1.0, basis_pct=0.05, spread_bps=2.0, interval_h=8,
+        exchange="BN",
+        symbol="BTC",
+        apy_net=25.0,
+        apy_gross=26.0,
+        cost=1.0,
+        basis_pct=0.05,
+        spread_bps=2.0,
+        interval_h=8,
     )
 
 

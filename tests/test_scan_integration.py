@@ -10,6 +10,7 @@ from fund_rate_arb.risk.exit_engine import ExitRuleEngine, TimeBasedRule
 async def test_strategy_tick_returns_result(tmp_path):
     db = str(tmp_path / "test.db")
     from fund_rate_arb.db import init_db, migrate_db
+
     init_db(db)
     migrate_db(db)
 

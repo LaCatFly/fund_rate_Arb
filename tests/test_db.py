@@ -40,8 +40,24 @@ class TestDatabase:
         try:
             init_db(db)
             rows = [
-                ("BTCUSDT", "binance", "2025-01-01T00:00:00", 0.0001, 0.00012, 50000.0, 49999.5),
-                ("ETHUSDT", "binance", "2025-01-01T00:00:00", 0.00015, 0.00015, 3000.0, 2999.5),
+                (
+                    "BTCUSDT",
+                    "binance",
+                    "2025-01-01T00:00:00",
+                    0.0001,
+                    0.00012,
+                    50000.0,
+                    49999.5,
+                ),
+                (
+                    "ETHUSDT",
+                    "binance",
+                    "2025-01-01T00:00:00",
+                    0.00015,
+                    0.00015,
+                    3000.0,
+                    2999.5,
+                ),
             ]
             insert_funding_rates(db, rows)
 
@@ -59,7 +75,15 @@ class TestDatabase:
         try:
             init_db(db)
             rows = [
-                ("BTCUSDT", "binance", "2025-01-01T00:00:00", 0.0001, 0.00012, 50000.0, 49999.5),
+                (
+                    "BTCUSDT",
+                    "binance",
+                    "2025-01-01T00:00:00",
+                    0.0001,
+                    0.00012,
+                    50000.0,
+                    49999.5,
+                ),
             ]
             insert_funding_rates(db, rows)
             insert_funding_rates(db, rows)  # duplicate

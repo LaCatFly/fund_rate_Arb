@@ -27,7 +27,9 @@ console = Console()
 
 
 @click.group()
-@click.option("--db", "db_path", default="fund_rate_arb.db", help="SQLite database path")
+@click.option(
+    "--db", "db_path", default="fund_rate_arb.db", help="SQLite database path"
+)
 @click.pass_context
 def cli(ctx: click.Context, db_path: str) -> None:
     """Funding rate arbitrage screener for Binance and Hyperliquid."""
@@ -38,7 +40,9 @@ def cli(ctx: click.Context, db_path: str) -> None:
 
 @cli.command()
 @click.option("--min-apy", default=10.0, help="Minimum APY% threshold")
-@click.option("--output", "-o", default="reports/funding-report-latest.md", help="Output path")
+@click.option(
+    "--output", "-o", default="reports/funding-report-latest.md", help="Output path"
+)
 @click.option("--compact/--full", default=False, help="Compact single-line format")
 @click.pass_context
 def report(ctx: click.Context, min_apy: float, output: str, compact: bool) -> None:
@@ -53,7 +57,13 @@ def report(ctx: click.Context, min_apy: float, output: str, compact: bool) -> No
 
 
 @cli.command()
-@click.option("--exchange", "-e", type=click.Choice(["binance", "hyperliquid", "all"]), default="all", help="Exchange to fetch")
+@click.option(
+    "--exchange",
+    "-e",
+    type=click.Choice(["binance", "hyperliquid", "all"]),
+    default="all",
+    help="Exchange to fetch",
+)
 @click.pass_context
 def fetch(ctx: click.Context, exchange: str) -> None:
     """Fetch latest funding rates, OI, and spread data."""
@@ -169,7 +179,9 @@ def score(ctx: click.Context, top: int, exchange: str | None) -> None:
 
 
 @cli.command("arb-opportunities")
-@click.option("--min-spread", default=0.0001, help="Minimum funding differential to flag")
+@click.option(
+    "--min-spread", default=0.0001, help="Minimum funding differential to flag"
+)
 @click.pass_context
 def arb_opportunities(ctx: click.Context, min_spread: float) -> None:
     """Show cross-exchange arbitrage opportunities."""
@@ -194,17 +206,23 @@ def arb_opportunities(ctx: click.Context, min_spread: float) -> None:
         differential = abs(b_rate - h_rate_per_8h)
 
         if differential >= min_spread:
-            opportunities.append({
-                "symbol": symbol,
-                "binance_rate": b_rate,
-                "hyperliquid_rate": h_rate,
-                "hyperliquid_rate_per_8h": h_rate_per_8h,
-                "differential": differential,
-                "direction": "Binance→Hyperliquid" if b_rate > h_rate_per_8h else "Hyperliquid→Binance",
-            })
+            opportunities.append(
+                {
+                    "symbol": symbol,
+                    "binance_rate": b_rate,
+                    "hyperliquid_rate": h_rate,
+                    "hyperliquid_rate_per_8h": h_rate_per_8h,
+                    "differential": differential,
+                    "direction": "Binance→Hyperliquid"
+                    if b_rate > h_rate_per_8h
+                    else "Hyperliquid→Binance",
+                }
+            )
 
     if not opportunities:
-        console.print("[yellow]No cross-exchange opportunities found above threshold.[/]")
+        console.print(
+            "[yellow]No cross-exchange opportunities found above threshold.[/]"
+        )
         return
 
     # Sort by differential descending
@@ -219,7 +237,9 @@ def arb_opportunities(ctx: click.Context, min_spread: float) -> None:
     table.add_column("Diff APY%", justify="right")
 
     for opp in opportunities:
-        diff_apy = opp["differential"] * 1095 * 100  # annualized percentage (per-8h basis)
+        diff_apy = (
+            opp["differential"] * 1095 * 100
+        )  # annualized percentage (per-8h basis)
         table.add_row(
             opp["symbol"],
             opp["direction"],
@@ -265,7 +285,9 @@ def history(ctx: click.Context, symbol: str, exchange: str, days: int) -> None:
 @click.option("--max-spread", default=10.0, help="Maximum spread in bps")
 @click.option("--output", "-o", default=None, help="Save output to file")
 @click.pass_context
-def signals(ctx: click.Context, min_apy: float, max_spread: float, output: str | None) -> None:
+def signals(
+    ctx: click.Context, min_apy: float, max_spread: float, output: str | None
+) -> None:
     """Fetch data, detect & rank funding signals, print compact TG table."""
     import asyncio, sqlite3, statistics, time
     from datetime import datetime, timezone
@@ -275,12 +297,15 @@ def signals(ctx: click.Context, min_apy: float, max_spread: float, output: str |
         for coll in [BinanceCollector(), HyperliquidCollector()]:
             console.print(f"[blue]Fetching {coll.exchange_name}...[/]")
             f, o, s = await coll.fetch_all()
-            all_funding.extend(f); all_spreads.extend(s)
+            all_funding.extend(f)
+            all_spreads.extend(s)
             console.print(f"  [green]✓ {len(f)} rates, {len(s)} spreads[/]")
 
         from fund_rate_arb.signal.detector import detect_signals
-        signals = detect_signals(all_funding, all_spreads,
-                                 apy_threshold=min_apy, max_spread_bps=max_spread)
+
+        signals = detect_signals(
+            all_funding, all_spreads, apy_threshold=min_apy, max_spread_bps=max_spread
+        )
 
         if not signals:
             console.print("[yellow]No signals found[/]")
@@ -303,7 +328,8 @@ def signals(ctx: click.Context, min_apy: float, max_spread: float, output: str |
                 s.avg_rate_72h = round(statistics.mean(rates), 8)
                 s.std_rate_72h = round(statistics.stdev(rates), 8)
                 s.positive_ratio_72h = round(
-                    sum(1 for r in rates if r > 0) / len(rates), 4)
+                    sum(1 for r in rates if r > 0) / len(rates), 4
+                )
             # Score
             cost_w = s.spread_bps / 100 * 52
             net_w = s.apy_gross - cost_w
@@ -322,13 +348,23 @@ def signals(ctx: click.Context, min_apy: float, max_spread: float, output: str |
         # Print compact table
         from fund_rate_arb.tg.formatter import format_signals
         from fund_rate_arb.tg.models import Signal as TGSignal
+
         tg_signals = [
-            TGSignal(exchange=s.exchange, symbol=s.symbol, apy_net=s.apy_net,
-                     apy_gross=s.apy_gross, cost=s.cost, basis_pct=s.basis_pct,
-                     spread_bps=s.spread_bps, interval_h=s.interval_h,
-                     avg_rate_72h=s.avg_rate_72h, std_rate_72h=s.std_rate_72h,
-                     positive_ratio_72h=s.positive_ratio_72h,
-                     score_daily=0.0, score_weekly=s.score_weekly)
+            TGSignal(
+                exchange=s.exchange,
+                symbol=s.symbol,
+                apy_net=s.apy_net,
+                apy_gross=s.apy_gross,
+                cost=s.cost,
+                basis_pct=s.basis_pct,
+                spread_bps=s.spread_bps,
+                interval_h=s.interval_h,
+                avg_rate_72h=s.avg_rate_72h,
+                std_rate_72h=s.std_rate_72h,
+                positive_ratio_72h=s.positive_ratio_72h,
+                score_daily=0.0,
+                score_weekly=s.score_weekly,
+            )
             for s in signals
         ]
         text = format_signals(tg_signals)
@@ -336,6 +372,7 @@ def signals(ctx: click.Context, min_apy: float, max_spread: float, output: str |
 
         if output:
             from pathlib import Path
+
             Path(output).parent.mkdir(parents=True, exist_ok=True)
             Path(output).write_text(text + "\n")
             console.print(f"[green]Saved to {output}[/]")
@@ -418,12 +455,21 @@ def pm_status(ctx: click.Context) -> None:
 
 
 @cli.command()
-@click.option("--symbol", "-s", required=True, help="Symbol to trade (e.g. DOT/USDT:USDT)")
-@click.option("--side", required=True, type=click.Choice(["long", "short"]), help="Position direction")
+@click.option(
+    "--symbol", "-s", required=True, help="Symbol to trade (e.g. DOT/USDT:USDT)"
+)
+@click.option(
+    "--side",
+    required=True,
+    type=click.Choice(["long", "short"]),
+    help="Position direction",
+)
 @click.option("--amount", "-a", type=float, required=True, help="Contract amount")
 @click.option("--dry-run", is_flag=True, help="Print order details without executing")
 @click.pass_context
-def trade(ctx: click.Context, symbol: str, side: str, amount: float, dry_run: bool) -> None:
+def trade(
+    ctx: click.Context, symbol: str, side: str, amount: float, dry_run: bool
+) -> None:
     """Execute a single futures order via portfolio margin."""
     from fund_rate_arb.collectors.portfolio_margin import PortfolioMarginCollector
 
@@ -438,7 +484,9 @@ def trade(ctx: click.Context, symbol: str, side: str, amount: float, dry_run: bo
 
     if dry_run:
         ticker = collector.exchange.fetch_ticker(symbol)
-        console.print(f"[yellow]DRY RUN[/] {position_side} {symbol}: {amount} units @ ~{ticker['last']}")
+        console.print(
+            f"[yellow]DRY RUN[/] {position_side} {symbol}: {amount} units @ ~{ticker['last']}"
+        )
         notional = amount * ticker["last"]
         console.print(f"  Estimated notional: ${notional:.2f}")
         return
@@ -468,8 +516,15 @@ def trade(ctx: click.Context, symbol: str, side: str, amount: float, dry_run: bo
 
 @cli.command()
 @click.option("--symbol", "-s", required=True, help="Symbol to close")
-@click.option("--side", required=True, type=click.Choice(["long", "short"]), help="Position side to close")
-@click.option("--amount", "-a", type=float, required=True, help="Contract amount to close")
+@click.option(
+    "--side",
+    required=True,
+    type=click.Choice(["long", "short"]),
+    help="Position side to close",
+)
+@click.option(
+    "--amount", "-a", type=float, required=True, help="Contract amount to close"
+)
 @click.pass_context
 def close(ctx: click.Context, symbol: str, side: str, amount: float) -> None:
     """Close an existing futures position via portfolio margin."""
@@ -499,7 +554,9 @@ def close(ctx: click.Context, symbol: str, side: str, amount: float) -> None:
 
 
 @cli.command()
-@click.option("--db", "db_path", default="fund_rate_arb.db", help="SQLite database path")
+@click.option(
+    "--db", "db_path", default="fund_rate_arb.db", help="SQLite database path"
+)
 def scan(db_path: str) -> None:
     """Run the continuous signal scanner (polling loop)."""
     import os
@@ -510,19 +567,25 @@ def scan(db_path: str) -> None:
 
 
 @cli.command("scan-strategy")
-@click.option("--db", "db_path", default="fund_rate_arb.db", help="SQLite database path")
+@click.option(
+    "--db", "db_path", default="fund_rate_arb.db", help="SQLite database path"
+)
 @click.option("--paper/--live", default=True, help="Paper or live execution")
 @click.option("--max-positions", default=5, help="Max concurrent positions")
 @click.option("--min-apy", default=15.0, help="Minimum APY threshold")
 @click.pass_context
-def scan_strategy(ctx: click.Context, db_path: str, paper: bool, max_positions: int, min_apy: float) -> None:
+def scan_strategy(
+    ctx: click.Context, db_path: str, paper: bool, max_positions: int, min_apy: float
+) -> None:
     """Run funding carry strategy loop (single tick for testing)."""
     from fund_rate_arb.db import init_db, migrate_db
+
     init_db(db_path)
     migrate_db(db_path)
 
     async def _run():
         from fund_rate_arb.main import run_strategy_tick
+
         console.print("[blue]Running strategy tick...[/]")
         await run_strategy_tick(db_path)
         console.print("[green]Strategy tick complete[/]")

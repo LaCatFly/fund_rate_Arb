@@ -9,7 +9,12 @@ import signal as sig
 
 from fund_rate_arb.collectors.binance import BinanceCollector
 from fund_rate_arb.collectors.hyperliquid import HyperliquidCollector
-from fund_rate_arb.db import init_db, insert_funding_rates, insert_oi_snapshots, insert_spread_data
+from fund_rate_arb.db import (
+    init_db,
+    insert_funding_rates,
+    insert_oi_snapshots,
+    insert_spread_data,
+)
 from fund_rate_arb.signal.detector import detect_signals, Signal
 from fund_rate_arb.signal.scheduler import PollScheduler
 
@@ -81,20 +86,25 @@ async def run_strategy_tick(db_path: str) -> None:
 
     strategy = FundingCarry(
         executor=PaperExecutor(notional_per_leg=200.0),
-        exit_engine=ExitRuleEngine([
-            TimeBasedRule(max_hold_hours=168),
-            FundingFlipRule(consecutive_neg=3),
-            APYThresholdRule(min_apy=10.0),
-        ]),
+        exit_engine=ExitRuleEngine(
+            [
+                TimeBasedRule(max_hold_hours=168),
+                FundingFlipRule(consecutive_neg=3),
+                APYThresholdRule(min_apy=10.0),
+            ]
+        ),
         max_positions=5,
         min_apy=APY_THRESHOLD,
     )
 
     result = await strategy.tick(db_path)
     if result.positions_opened or result.positions_closed:
-        logger.info("Strategy: +%d opened, -%d closed, %d signals",
-                     result.positions_opened, result.positions_closed,
-                     result.signals_generated)
+        logger.info(
+            "Strategy: +%d opened, -%d closed, %d signals",
+            result.positions_opened,
+            result.positions_closed,
+            result.signals_generated,
+        )
     for err in result.errors:
         logger.error("Strategy error: %s", err)
 
@@ -119,7 +129,9 @@ async def main() -> None:
         loop.add_signal_handler(s, _handle_signal)
 
     logger.info("Starting funding rate signal scanner")
-    logger.info("Threshold: %.1f%% APY, Max spread: %.1f bps", APY_THRESHOLD, MIN_SPREAD_BPS)
+    logger.info(
+        "Threshold: %.1f%% APY, Max spread: %.1f bps", APY_THRESHOLD, MIN_SPREAD_BPS
+    )
 
     async def _bn_scan_with_strategy():
         await scan_exchange(bn_collector, DB_PATH)
@@ -142,13 +154,16 @@ def run() -> None:
     from dotenv import load_dotenv
 
     # Load .env from cwd or package parent (supports both dev install and CLI)
-    for candidate in [Path.cwd() / ".env",
-                      Path(__file__).resolve().parent.parent / ".env"]:
+    for candidate in [
+        Path.cwd() / ".env",
+        Path(__file__).resolve().parent.parent / ".env",
+    ]:
         if candidate.exists():
             load_dotenv(candidate)
             break
 
     from fund_rate_arb.cli.main import cli
+
     cli()
 
 

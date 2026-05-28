@@ -26,7 +26,9 @@ class Allocator:
         return self.total_capital - self._used_slots * self.notional_per_leg
 
     def can_allocate(self) -> bool:
-        return self.available_slots > 0 and self.available_capital >= self.notional_per_leg
+        return (
+            self.available_slots > 0 and self.available_capital >= self.notional_per_leg
+        )
 
     def allocate(self) -> bool:
         if not self.can_allocate():

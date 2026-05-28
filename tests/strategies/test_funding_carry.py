@@ -11,8 +11,14 @@ from fund_rate_arb.risk.exit_engine import ExitRuleEngine, TimeBasedRule
 @pytest.fixture
 def high_apy_signal():
     sig = Signal(
-        exchange="BN", symbol="BTC", apy_net=25.0, apy_gross=26.0,
-        cost=1.0, basis_pct=0.05, spread_bps=2.0, interval_h=8,
+        exchange="BN",
+        symbol="BTC",
+        apy_net=25.0,
+        apy_gross=26.0,
+        cost=1.0,
+        basis_pct=0.05,
+        spread_bps=2.0,
+        interval_h=8,
     )
     sig._mark_price = 50000.0
     return sig
@@ -21,8 +27,14 @@ def high_apy_signal():
 @pytest.fixture
 def low_apy_signal():
     return Signal(
-        exchange="BN", symbol="ETH", apy_net=5.0, apy_gross=6.0,
-        cost=1.0, basis_pct=0.02, spread_bps=1.0, interval_h=8,
+        exchange="BN",
+        symbol="ETH",
+        apy_net=5.0,
+        apy_gross=6.0,
+        cost=1.0,
+        basis_pct=0.02,
+        spread_bps=1.0,
+        interval_h=8,
     )
 
 
@@ -48,11 +60,19 @@ class TestSelection:
     def test_respects_max_positions(self, strategy, high_apy_signal):
         open_pos = [
             CarryPosition(
-                execution_id=f"p{i}", strategy_name="funding_carry",
-                symbol=f"SYM{i}USDT", exchange="paper", side="SHORT",
-                contracts=0.01, entry_price=100.0, entry_basis=0,
-                entry_cost=0, cumulative_funding=0, notional_usdt=100,
-                opened_at="2026-01-01T00:00:00", max_break_even_days=10,
+                execution_id=f"p{i}",
+                strategy_name="funding_carry",
+                symbol=f"SYM{i}USDT",
+                exchange="paper",
+                side="SHORT",
+                contracts=0.01,
+                entry_price=100.0,
+                entry_basis=0,
+                entry_cost=0,
+                cumulative_funding=0,
+                notional_usdt=100,
+                opened_at="2026-01-01T00:00:00",
+                max_break_even_days=10,
                 status="Open",
             )
             for i in range(3)
