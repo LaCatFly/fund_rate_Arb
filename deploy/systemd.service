@@ -1,14 +1,3 @@
-[Unit]
-Description=Funding Rate Arbitrage Signal Scanner
-After=network-online.target
-
-[Service]
-Type=simple
-WorkingDirectory=/opt/fund_rate_arb
-ExecStart=/opt/fund_rate_arb/.venv/bin/python -m fund_rate_arb.main
-Restart=on-failure
-RestartSec=10
-Environment=PYTHONUNBUFFERED=1
-
-[Install]
-WantedBy=multi-user.target
+# DEPRECATED — Use deploy/fund-rate-scan.service instead
+# This was a system-level service; project now uses user-level systemd.
+# See deploy/install.sh for the current approach.

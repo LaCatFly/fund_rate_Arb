@@ -1,19 +1,11 @@
 #!/usr/bin/env bash
-set -euo pipefail
-
-INSTALL_DIR="/opt/fund_rate_arb"
-
-echo "Installing to $INSTALL_DIR..."
-sudo mkdir -p "$INSTALL_DIR"
-sudo cp -r ./* "$INSTALL_DIR/"
-sudo chown -R $USER:$USER "$INSTALL_DIR"
-
-cd "$INSTALL_DIR"
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e .
-
-cp .env.example .env
-echo "Edit .env with your API keys and TG credentials"
-echo "Then: sudo cp deploy/systemd.service /etc/systemd/system/fund-rate-arb.service"
-echo "      sudo systemctl enable --now fund-rate-arb"
+# DEPRECATED — Use deploy/install.sh instead
+# This script used pip; project now uses uv with user-level systemd services.
+#
+# One-time VPS setup:
+#   1. Install python3 + git + uv
+#   2. Clone repo to ~/fund_rate_arb
+#   3. Run: bash deploy/install.sh
+#   4. Fill .env with your secrets
+echo "DEPRECATED: Use 'bash deploy/install.sh' instead."
+exit 1
