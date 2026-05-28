@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
-from fund_rate_arb.models.funding import CarryPosition, ExitSignal, MarketData
-from fund_rate_arb.signal.detector import Signal
+if TYPE_CHECKING:
+    from fund_rate_arb.models.funding import CarryPosition, ExitSignal
+    from fund_rate_arb.signal.detector import Signal
 
 
 @dataclass
@@ -31,7 +33,9 @@ class BaseStrategy(ABC):
         """Run one full cycle: select, execute, monitor, exit."""
 
     @abstractmethod
-    def select(self, signals: list[Signal], open_positions: list[CarryPosition]) -> list[Signal]:
+    def select(
+        self, signals: list[Signal], open_positions: list[CarryPosition]
+    ) -> list[Signal]:
         """Filter signals into candidates for new positions."""
 
     @abstractmethod
@@ -39,9 +43,13 @@ class BaseStrategy(ABC):
         """Open a new position from a signal."""
 
     @abstractmethod
-    async def monitor_position(self, position: CarryPosition, db_path: str) -> list[ExitSignal]:
+    async def monitor_position(
+        self, position: CarryPosition, db_path: str
+    ) -> list[ExitSignal]:
         """Check exit conditions for a position."""
 
     @abstractmethod
-    async def exit_position(self, position: CarryPosition, reason: str, db_path: str) -> bool:
+    async def exit_position(
+        self, position: CarryPosition, reason: str, db_path: str
+    ) -> bool:
         """Close a position."""
