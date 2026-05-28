@@ -44,17 +44,19 @@ def escape_md_v2(text: str) -> str:
     lines = text.split("\n")
     result = []
     in_code = False
-    chars = r"_*[]()~`>#+-=|{}.!\\"
+    # Escape \ FIRST so added backslashes don't get double-escaped
+    chars_outside_code = r"_*[]()~`>#+-=|{}.!\\"
     for line in lines:
         if line.strip().startswith("```"):
             in_code = not in_code
             result.append(line)
             continue
-        if in_code:
-            result.append(line)
-        else:
-            escaped = line
-            for c in chars:
-                escaped = escaped.replace(c, f"\\{c}")
-            result.append(escaped)
+        if not in_code:
+            # Escape \ first (before other chars), then rest
+            line = line.replace("\\", "\\\\")
+            for c in chars_outside_code:
+                if c == "\\":
+                    continue
+                line = line.replace(c, f"\\{c}")
+        result.append(line)
     return "\n".join(result)
