@@ -383,13 +383,12 @@ def signals(
 @cli.command()
 @click.pass_context
 def pm_status(ctx: click.Context) -> None:
-    """Show portfolio margin account status, positions, and recent trades."""
+    """Show account status, positions, and recent trades."""
     db_path = ctx.obj["db_path"]
-    from fund_rate_arb.collectors.portfolio_margin import PortfolioMarginCollector
+    from fund_rate_arb.collectors import get_trading_collector
     from fund_rate_arb.trading.engine import TradingEngine
-    from fund_rate_arb.db import query_open_positions, query_recent_trades
 
-    collector = PortfolioMarginCollector()
+    collector = get_trading_collector()
     engine = TradingEngine(collector, db_path)
     status = engine.pm_status()
 
@@ -470,10 +469,10 @@ def pm_status(ctx: click.Context) -> None:
 def trade(
     ctx: click.Context, symbol: str, side: str, amount: float, dry_run: bool
 ) -> None:
-    """Execute a single futures order via portfolio margin."""
-    from fund_rate_arb.collectors.portfolio_margin import PortfolioMarginCollector
+    """Execute a single futures order."""
+    from fund_rate_arb.collectors import get_trading_collector
 
-    collector = PortfolioMarginCollector()
+    collector = get_trading_collector()
     db_path = ctx.obj["db_path"]
     from fund_rate_arb.trading.engine import TradingEngine
 
@@ -527,10 +526,10 @@ def trade(
 )
 @click.pass_context
 def close(ctx: click.Context, symbol: str, side: str, amount: float) -> None:
-    """Close an existing futures position via portfolio margin."""
-    from fund_rate_arb.collectors.portfolio_margin import PortfolioMarginCollector
+    """Close an existing futures position."""
+    from fund_rate_arb.collectors import get_trading_collector
 
-    collector = PortfolioMarginCollector()
+    collector = get_trading_collector()
     db_path = ctx.obj["db_path"]
     from fund_rate_arb.trading.engine import TradingEngine
 
@@ -584,10 +583,36 @@ def scan_strategy(
     migrate_db(db_path)
 
     async def _run():
-        from fund_rate_arb.main import run_strategy_tick
+        if paper:
+            from fund_rate_arb.main import run_strategy_tick
 
-        console.print("[blue]Running strategy tick...[/]")
-        await run_strategy_tick(db_path)
+            console.print("[blue]Running strategy tick (paper)...[/]")
+            await run_strategy_tick(db_path)
+        else:
+            from fund_rate_arb.collectors import get_trading_collector
+            from fund_rate_arb.execution.live import LiveExecutor
+            from fund_rate_arb.risk.exit_engine import (
+                APYThresholdRule, FundingFlipRule, TimeBasedRule, ExitRuleEngine,
+            )
+            from fund_rate_arb.strategies.funding_carry import FundingCarry
+
+            collector = get_trading_collector()
+            executor = LiveExecutor(collector=collector, notional_per_leg=200.0)
+            strategy = FundingCarry(
+                executor=executor,
+                exit_engine=ExitRuleEngine([
+                    TimeBasedRule(max_hold_hours=168),
+                    FundingFlipRule(consecutive_neg=3),
+                    APYThresholdRule(min_apy=10.0),
+                ]),
+                max_positions=max_positions,
+                min_apy=min_apy,
+            )
+            console.print("[yellow]Running strategy tick (LIVE)...[/]")
+            result = await strategy.tick(db_path)
+            console.print(f"  +{result.positions_opened} opened, -{result.positions_closed} closed")
+            for err in result.errors:
+                console.print(f"  [red]Error: {err}[/]")
         console.print("[green]Strategy tick complete[/]")
 
     asyncio.run(_run())
