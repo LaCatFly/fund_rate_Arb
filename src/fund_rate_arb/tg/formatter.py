@@ -40,7 +40,21 @@ def format_signals(signals: list[Signal], title: str = "Funding Signals") -> str
 
 
 def escape_md_v2(text: str) -> str:
+    """Escape special chars for Telegram MarkdownV2, preserving code blocks."""
+    lines = text.split("\n")
+    result = []
+    in_code = False
     chars = r"_*[]()~`>#+-=|{}.!\\"
-    for c in chars:
-        text = text.replace(c, f"\\{c}")
-    return text
+    for line in lines:
+        if line.strip().startswith("```"):
+            in_code = not in_code
+            result.append(line)
+            continue
+        if in_code:
+            result.append(line)
+        else:
+            escaped = line
+            for c in chars:
+                escaped = escaped.replace(c, f"\\{c}")
+            result.append(escaped)
+    return "\n".join(result)
