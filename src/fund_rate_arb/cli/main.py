@@ -507,3 +507,24 @@ def scan(db_path: str) -> None:
 
     os.environ["DB_PATH"] = db_path
     asyncio.run(scanner_main())
+
+
+@cli.command("scan-strategy")
+@click.option("--db", "db_path", default="fund_rate_arb.db", help="SQLite database path")
+@click.option("--paper/--live", default=True, help="Paper or live execution")
+@click.option("--max-positions", default=5, help="Max concurrent positions")
+@click.option("--min-apy", default=15.0, help="Minimum APY threshold")
+@click.pass_context
+def scan_strategy(ctx: click.Context, db_path: str, paper: bool, max_positions: int, min_apy: float) -> None:
+    """Run funding carry strategy loop (single tick for testing)."""
+    from fund_rate_arb.db import init_db, migrate_db
+    init_db(db_path)
+    migrate_db(db_path)
+
+    async def _run():
+        from fund_rate_arb.main import run_strategy_tick
+        console.print("[blue]Running strategy tick...[/]")
+        await run_strategy_tick(db_path)
+        console.print("[green]Strategy tick complete[/]")
+
+    asyncio.run(_run())
