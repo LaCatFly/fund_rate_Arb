@@ -105,12 +105,16 @@ class TestQualityScore:
         history = [0.0001] * 30
 
         low_spread = compute_quality_score(
-            symbol="BTCUSDT", exchange="binance",
-            funding_history=history, spread_bps=1.0,
+            symbol="BTCUSDT",
+            exchange="binance",
+            funding_history=history,
+            spread_bps=1.0,
         )
         high_spread = compute_quality_score(
-            symbol="BTCUSDT", exchange="binance",
-            funding_history=history, spread_bps=20.0,
+            symbol="BTCUSDT",
+            exchange="binance",
+            funding_history=history,
+            spread_bps=20.0,
         )
 
         # Spread penalty: -(-0.10) * spread_norm + -(-0.05) * spread_norm * 0.5
@@ -126,12 +130,16 @@ class TestQualityScore:
         volatile = [0.0005 if i % 2 == 0 else -0.0003 for i in range(30)]
 
         stable_score = compute_quality_score(
-            symbol="BTCUSDT", exchange="binance",
-            funding_history=stable, spread_bps=2.0,
+            symbol="BTCUSDT",
+            exchange="binance",
+            funding_history=stable,
+            spread_bps=2.0,
         )
         volatile_score = compute_quality_score(
-            symbol="BTCUSDT", exchange="binance",
-            funding_history=volatile, spread_bps=2.0,
+            symbol="BTCUSDT",
+            exchange="binance",
+            funding_history=volatile,
+            spread_bps=2.0,
         )
 
         assert stable_score.score > volatile_score.score

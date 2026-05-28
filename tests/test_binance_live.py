@@ -16,8 +16,8 @@ import pytest
 
 SYMBOL_SPOT = "GLM/USDT"
 SYMBOL_FUTURES = "DOT/USDT:USDT"
-SPOT_SELL_AMOUNT = 40             # ~40 GLM × $0.14 ≈ $5.60
-FUTURES_NOTIONAL = 5.50           # safely above $5 minimum
+SPOT_SELL_AMOUNT = 40  # ~40 GLM × $0.14 ≈ $5.60
+FUTURES_NOTIONAL = 5.50  # safely above $5 minimum
 
 
 @pytest.fixture
@@ -28,12 +28,14 @@ def spot_exchange():
     if not api_key or not secret:
         pytest.skip("BINANCE_API_KEY and BINANCE_SECRET not set")
 
-    ex = ccxt.binance({
-        "apiKey": api_key,
-        "secret": secret,
-        "enableRateLimit": True,
-        "options": {"defaultType": "spot"},
-    })
+    ex = ccxt.binance(
+        {
+            "apiKey": api_key,
+            "secret": secret,
+            "enableRateLimit": True,
+            "options": {"defaultType": "spot"},
+        }
+    )
     proxy = os.environ.get("BINANCE_PROXY", "")
     if proxy:
         ex.proxies = {"http": proxy, "https": proxy}
@@ -49,12 +51,14 @@ def pm_exchange():
     if not api_key or not secret:
         pytest.skip("BINANCE_API_KEY and BINANCE_SECRET not set")
 
-    ex = ccxt.binance({
-        "apiKey": api_key,
-        "secret": secret,
-        "enableRateLimit": True,
-        "options": {"defaultType": "future", "papi": True},
-    })
+    ex = ccxt.binance(
+        {
+            "apiKey": api_key,
+            "secret": secret,
+            "enableRateLimit": True,
+            "options": {"defaultType": "future", "papi": True},
+        }
+    )
     proxy = os.environ.get("BINANCE_PROXY", "")
     if proxy:
         ex.proxies = {"http": proxy, "https": proxy}
@@ -115,7 +119,9 @@ class TestSpotOrders:
             side="sell",
             amount=SPOT_SELL_AMOUNT,
         )
-        print(f"  Sell: id={order['id']}, filled={order['filled']}, avg={order.get('average')}")
+        print(
+            f"  Sell: id={order['id']}, filled={order['filled']}, avg={order.get('average')}"
+        )
 
         time.sleep(2)
         bal_after = spot_exchange.fetch_balance()
@@ -140,7 +146,9 @@ class TestSpotOrders:
             side="buy",
             amount=glm_amount,
         )
-        print(f"  Buy: id={order['id']}, filled={order['filled']}, avg={order.get('average')}")
+        print(
+            f"  Buy: id={order['id']}, filled={order['filled']}, avg={order.get('average')}"
+        )
 
         time.sleep(2)
         bal_after = spot_exchange.fetch_balance()
@@ -162,7 +170,9 @@ class TestFuturesOrders:
             amount=amount,
             params={"papi": True, "positionSide": "LONG"},
         )
-        print(f"  Open LONG: id={order['id']}, status={order['status']}, filled={order.get('filled')}")
+        print(
+            f"  Open LONG: id={order['id']}, status={order['status']}, filled={order.get('filled')}"
+        )
         assert order["status"] in ("closed", "filled", "open")
 
         # Use actual filled amount
@@ -190,7 +200,9 @@ class TestFuturesOrders:
             amount=amount,
             params={"papi": True, "positionSide": "SHORT"},
         )
-        print(f"  Open SHORT: id={order['id']}, status={order['status']}, filled={order.get('filled')}")
+        print(
+            f"  Open SHORT: id={order['id']}, status={order['status']}, filled={order.get('filled')}"
+        )
         assert order["status"] in ("closed", "filled", "open")
 
         filled = order.get("filled") or amount

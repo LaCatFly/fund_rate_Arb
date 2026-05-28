@@ -89,9 +89,21 @@ class TestMigration:
 class TestStrategyPosition:
     def test_insert_returns_execution_id(self, db_path):
         row = (
-            "TSLA", "binance", "SHORT", 10.0, 100.0, 100.0,
-            0.0, 500.0, 1, "2024-01-01T00:00:00", "open",
-            "funding_carry", 0.001, 0.0, 10,
+            "TSLA",
+            "binance",
+            "SHORT",
+            10.0,
+            100.0,
+            100.0,
+            0.0,
+            500.0,
+            1,
+            "2024-01-01T00:00:00",
+            "open",
+            "funding_carry",
+            0.001,
+            0.0,
+            10,
         )
         exec_id = insert_strategy_position(db_path, row)
         assert exec_id is not None
@@ -99,9 +111,21 @@ class TestStrategyPosition:
 
     def test_close_strategy_position(self, db_path):
         row = (
-            "TSLA", "binance", "SHORT", 10.0, 100.0, 100.0,
-            0.0, 500.0, 1, "2024-01-01T00:00:00", "open",
-            "funding_carry", 0.001, 0.0, 10,
+            "TSLA",
+            "binance",
+            "SHORT",
+            10.0,
+            100.0,
+            100.0,
+            0.0,
+            500.0,
+            1,
+            "2024-01-01T00:00:00",
+            "open",
+            "funding_carry",
+            0.001,
+            0.0,
+            10,
         )
         exec_id = insert_strategy_position(db_path, row)
         close_strategy_position(db_path, exec_id, "funding_collapse")
@@ -263,12 +287,17 @@ class TestMonitors:
 class TestRetriever:
     def test_query_funding_window(self, db_path):
         # Insert rows with timestamps relative to a fixed point
-        insert_funding_rates(db_path, [
-            ("TSLA", "binance", "2024-01-01T00:00:00", 0.001, None, None, None),
-            ("TSLA", "binance", "2024-01-01T08:00:00", 0.002, None, None, None),
-        ])
+        insert_funding_rates(
+            db_path,
+            [
+                ("TSLA", "binance", "2024-01-01T00:00:00", 0.001, None, None, None),
+                ("TSLA", "binance", "2024-01-01T08:00:00", 0.002, None, None, None),
+            ],
+        )
         # Use query_funding_range directly to avoid NOW() dependency
-        rates = query_funding_range(db_path, "TSLA", "binance", "2024-01-01T00:00:00", "2024-12-31T00:00:00")
+        rates = query_funding_range(
+            db_path, "TSLA", "binance", "2024-01-01T00:00:00", "2024-12-31T00:00:00"
+        )
         assert len(rates) == 2
 
     def test_query_funding_window_empty(self, db_path):
@@ -276,18 +305,24 @@ class TestRetriever:
         assert rates == []
 
     def test_query_oi_window(self, db_path):
-        insert_oi_snapshots(db_path, [
-            ("TSLA", "binance", "2024-01-01T00:00:00", 1000.0),
-            ("TSLA", "binance", "2024-01-01T08:00:00", 1500.0),
-        ])
+        insert_oi_snapshots(
+            db_path,
+            [
+                ("TSLA", "binance", "2024-01-01T00:00:00", 1000.0),
+                ("TSLA", "binance", "2024-01-01T08:00:00", 1500.0),
+            ],
+        )
         oi = query_oi_window(db_path, "TSLA", "binance", hours=87600)
         assert len(oi) == 2
         assert oi == [1000.0, 1500.0]
 
     def test_query_latest_basis(self, db_path):
-        insert_funding_rates(db_path, [
-            ("TSLA", "binance", "2024-01-01T00:00:00", 0.001, None, 101.0, 100.0),
-        ])
+        insert_funding_rates(
+            db_path,
+            [
+                ("TSLA", "binance", "2024-01-01T00:00:00", 0.001, None, 101.0, 100.0),
+            ],
+        )
         basis = query_latest_basis(db_path, "TSLA", "binance")
         assert basis is not None
         assert abs(basis - 0.01) < 0.001  # (101-100)/100 = 0.01
@@ -299,18 +334,31 @@ class TestRetriever:
     def test_query_cumulative_funding(self, db_path):
         # Insert directly with distinct timestamps to avoid UNIQUE collision
         from fund_rate_arb.db import get_connection
+
         conn = get_connection(db_path)
         conn.execute(
             """INSERT INTO trade_log (execution_id, strategy_name, symbol, event, timestamp, details)
                VALUES (?, ?, ?, ?, ?, ?)""",
-            ("exec-1", "funding_carry", "TSLA", "funding", "2024-01-01T08:00:00",
-             json.dumps({"rate": 0.001, "amount": 0.5})),
+            (
+                "exec-1",
+                "funding_carry",
+                "TSLA",
+                "funding",
+                "2024-01-01T08:00:00",
+                json.dumps({"rate": 0.001, "amount": 0.5}),
+            ),
         )
         conn.execute(
             """INSERT INTO trade_log (execution_id, strategy_name, symbol, event, timestamp, details)
                VALUES (?, ?, ?, ?, ?, ?)""",
-            ("exec-1", "funding_carry", "TSLA", "funding", "2024-01-01T16:00:00",
-             json.dumps({"rate": 0.002, "amount": 1.0})),
+            (
+                "exec-1",
+                "funding_carry",
+                "TSLA",
+                "funding",
+                "2024-01-01T16:00:00",
+                json.dumps({"rate": 0.002, "amount": 1.0}),
+            ),
         )
         conn.commit()
         conn.close()
@@ -327,8 +375,12 @@ class TestRetriever:
 
 class TestPayments:
     def test_record_and_query(self, db_path):
-        record_funding_payment(db_path, "exec-1", "TSLA", 0.001, 0.5, "2024-01-01T08:00:00")
-        record_funding_payment(db_path, "exec-1", "TSLA", 0.002, 1.0, "2024-01-01T16:00:00")
+        record_funding_payment(
+            db_path, "exec-1", "TSLA", 0.001, 0.5, "2024-01-01T08:00:00"
+        )
+        record_funding_payment(
+            db_path, "exec-1", "TSLA", 0.002, 1.0, "2024-01-01T16:00:00"
+        )
         summary = query_position_funding_summary(db_path, "exec-1")
         assert summary.count == 2
         assert abs(summary.total_payments - 1.5) < 0.001
@@ -346,10 +398,19 @@ class TestPayments:
 class TestModels:
     def test_carry_position_defaults(self):
         pos = CarryPosition(
-            execution_id="test", strategy_name="funding_carry", symbol="TSLA",
-            exchange="binance_pm", side="SHORT", contracts=10.0, entry_price=100.0,
-            entry_basis=0.001, entry_cost=0.5, cumulative_funding=0.0,
-            notional_usdt=1000.0, opened_at="2024-01-01", max_break_even_days=10,
+            execution_id="test",
+            strategy_name="funding_carry",
+            symbol="TSLA",
+            exchange="binance_pm",
+            side="SHORT",
+            contracts=10.0,
+            entry_price=100.0,
+            entry_basis=0.001,
+            entry_cost=0.5,
+            cumulative_funding=0.0,
+            notional_usdt=1000.0,
+            opened_at="2024-01-01",
+            max_break_even_days=10,
             status="Open",
         )
         assert pos.close_reason is None
@@ -360,9 +421,13 @@ class TestModels:
 
     def test_market_data_defaults(self):
         md = MarketData(
-            symbol="TSLA", exchange="binance", current_mark=101.0,
-            current_index=100.0, current_basis=0.01,
-            funding_history_48h=[0.001], oi_window_8h=[1000.0],
+            symbol="TSLA",
+            exchange="binance",
+            current_mark=101.0,
+            current_index=100.0,
+            current_basis=0.01,
+            funding_history_48h=[0.001],
+            oi_window_8h=[1000.0],
         )
         assert md.distance_to_liq_pct is None
         assert md.predicted_funding is None

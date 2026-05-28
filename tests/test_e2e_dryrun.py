@@ -58,9 +58,23 @@ SYMBOLS = [
     # High persistence, positive — good carry candidate
     ("TSLAUSDT", [0.0003] * 30, [5e6] * 30, 250.0, 249.5, 1.5),
     # High but volatile — moderate candidate
-    ("NVDAUSDT", [0.0005, -0.0001, 0.0004, -0.0002, 0.0006] * 6, [3e6] * 30, 120.0, 119.8, 2.0),
+    (
+        "NVDAUSDT",
+        [0.0005, -0.0001, 0.0004, -0.0002, 0.0006] * 6,
+        [3e6] * 30,
+        120.0,
+        119.8,
+        2.0,
+    ),
     # Declining funding — bad candidate
-    ("AAPLUSDT", [0.0001, 0.00005, 0.00002, -0.00005, -0.0001] * 6, [2e6] * 30, 180.0, 179.9, 3.0),
+    (
+        "AAPLUSDT",
+        [0.0001, 0.00005, 0.00002, -0.00005, -0.0001] * 6,
+        [2e6] * 30,
+        180.0,
+        179.9,
+        3.0,
+    ),
     # Steady positive — decent candidate
     ("AMZNUSDT", [0.0002] * 30, [4e6] * 30, 185.0, 184.7, 1.0),
     # Negative funding — skip
@@ -173,12 +187,16 @@ def test_e2e_dryrun(pipeline, capsys):
 
     scores.sort(key=lambda s: s.score, reverse=True)
 
-    print(f"\n  {'Symbol':<14} {'Score':>7} {'APY%':>8} {'BE Days':>8} {'Persist':>8} {'Regime':<8}")
+    print(
+        f"\n  {'Symbol':<14} {'Score':>7} {'APY%':>8} {'BE Days':>8} {'Persist':>8} {'Regime':<8}"
+    )
     print("  " + "-" * 55)
     for s in scores:
         apy_str = f"{s.estimated_apy * 100:.1f}%" if s.estimated_apy > 0 else "N/A"
         be_str = f"{s.break_even_days:.1f}" if s.break_even_days > 0 else "inf"
-        print(f"  {s.symbol:<14} {s.score:>7.4f} {apy_str:>8} {be_str:>8} {s.persistence:>8.1%} {s.regime:<8}")
+        print(
+            f"  {s.symbol:<14} {s.score:>7.4f} {apy_str:>8} {be_str:>8} {s.persistence:>8.1%} {s.regime:<8}"
+        )
 
     # ── Step 2: Select ─────────────────────────────────────────────────
     print("\n── STEP 2: Select top candidates ──")
@@ -186,7 +204,8 @@ def test_e2e_dryrun(pipeline, capsys):
     cfg = STRATEGY_CONFIG["selection"]
     # Filter: positive APY, regime != bear, break_even <= max
     eligible = [
-        s for s in scores
+        s
+        for s in scores
         if s.estimated_apy > 0
         and s.regime != "bear"
         and (s.break_even_days > 0 and s.break_even_days <= 10)
@@ -213,10 +232,14 @@ def test_e2e_dryrun(pipeline, capsys):
         daily_funding = c.funding_mean * 3  # 3 intervals per day
         daily_fee_cost = fees.total_round_trip / max(fees.break_even_days, 1)
         if daily_funding <= daily_fee_cost:
-            print(f"  [GATE] {c.symbol}: daily_funding=${daily_funding:.6f} <= daily_fee=${daily_fee_cost:.6f} — SKIP")
+            print(
+                f"  [GATE] {c.symbol}: daily_funding=${daily_funding:.6f} <= daily_fee=${daily_fee_cost:.6f} — SKIP"
+            )
             candidates.remove(c)
         else:
-            print(f"  [GATE] {c.symbol}: daily_funding=${daily_funding:.6f} > daily_fee=${daily_fee_cost:.6f} BE={fees.break_even_days:.1f}d — PASS")
+            print(
+                f"  [GATE] {c.symbol}: daily_funding=${daily_funding:.6f} > daily_fee=${daily_fee_cost:.6f} BE={fees.break_even_days:.1f}d — PASS"
+            )
 
     # ── Step 3: Execute (paper mode) ───────────────────────────────────
     print(f"\n── STEP 3: Paper execute ({len(candidates)} positions) ──")
@@ -226,7 +249,7 @@ def test_e2e_dryrun(pipeline, capsys):
 
     for c in candidates:
         exec_id = str(uuid.uuid4())[:8]
-        entry_basis = (c.volatility or 0.001)  # simplified
+        entry_basis = c.volatility or 0.001  # simplified
 
         # Simulate fill at mark price
         symbol_data = next(s for s in SYMBOLS if s[0] == c.symbol)
@@ -238,16 +261,35 @@ def test_e2e_dryrun(pipeline, capsys):
 
         # Insert to DB (row must have 15 values: base + strategy columns)
         row = (
-            c.symbol, "paper", "SHORT", contracts, mark_price, mark_price,
-            0.0, notional, 1,
-            datetime.now(timezone.utc).isoformat(), "open",
-            "funding_carry", entry_basis, 0.0, 10,
+            c.symbol,
+            "paper",
+            "SHORT",
+            contracts,
+            mark_price,
+            mark_price,
+            0.0,
+            notional,
+            1,
+            datetime.now(timezone.utc).isoformat(),
+            "open",
+            "funding_carry",
+            entry_basis,
+            0.0,
+            10,
         )
         insert_strategy_position(db_path, row)
 
         # Log event
-        insert_trade_log(db_path, exec_id, "funding_carry", c.symbol, "open",
-                         json.dumps({"notional": notional, "price": mark_price, "contracts": contracts}))
+        insert_trade_log(
+            db_path,
+            exec_id,
+            "funding_carry",
+            c.symbol,
+            "open",
+            json.dumps(
+                {"notional": notional, "price": mark_price, "contracts": contracts}
+            ),
+        )
 
         pos = CarryPosition(
             execution_id=exec_id,
@@ -267,16 +309,21 @@ def test_e2e_dryrun(pipeline, capsys):
         )
         positions.append(pos)
 
-        bus.publish("POSITION_OPENED", {
-            "execution_id": exec_id,
-            "symbol": c.symbol,
-            "side": "SHORT",
-            "notional": notional,
-            "entry_basis": entry_basis,
-        })
+        bus.publish(
+            "POSITION_OPENED",
+            {
+                "execution_id": exec_id,
+                "symbol": c.symbol,
+                "side": "SHORT",
+                "notional": notional,
+                "entry_basis": entry_basis,
+            },
+        )
 
-        print(f"  [OPEN] {c.symbol} SHORT ${notional:.0f} @ {mark_price:.2f} "
-              f"(contracts={contracts:.4f}, fee=${entry_fee:.4f})")
+        print(
+            f"  [OPEN] {c.symbol} SHORT ${notional:.0f} @ {mark_price:.2f} "
+            f"(contracts={contracts:.4f}, fee=${entry_fee:.4f})"
+        )
 
     # ── Step 4: Simulate funding payments ──────────────────────────────
     print(f"\n── STEP 4: Simulate 3 funding intervals (24h) ──")
@@ -285,20 +332,28 @@ def test_e2e_dryrun(pipeline, capsys):
         c = next(s for s in scores if s.symbol == pos.symbol)
         for interval in range(3):
             payment = pos.notional_usdt * c.funding_mean
-            ts = (datetime.now(timezone.utc) + timedelta(hours=8 * (interval + 1))).isoformat()
-            record_funding_payment(db_path, pos.execution_id, pos.symbol,
-                                   c.funding_mean, payment, ts)
+            ts = (
+                datetime.now(timezone.utc) + timedelta(hours=8 * (interval + 1))
+            ).isoformat()
+            record_funding_payment(
+                db_path, pos.execution_id, pos.symbol, c.funding_mean, payment, ts
+            )
             pos.cumulative_funding += payment
 
         summary = query_position_funding_summary(db_path, pos.execution_id)
-        print(f"  [FUNDING] {pos.symbol}: {summary.count} payments, "
-              f"total=${summary.total_payments:.4f}, avg_rate={summary.average_rate:.6f}")
+        print(
+            f"  [FUNDING] {pos.symbol}: {summary.count} payments, "
+            f"total=${summary.total_payments:.4f}, avg_rate={summary.average_rate:.6f}"
+        )
 
-        bus.publish("FUNDING_PAYMENT", {
-            "symbol": pos.symbol,
-            "execution_id": pos.execution_id,
-            "total": pos.cumulative_funding,
-        })
+        bus.publish(
+            "FUNDING_PAYMENT",
+            {
+                "symbol": pos.symbol,
+                "execution_id": pos.execution_id,
+                "total": pos.cumulative_funding,
+            },
+        )
 
     # ── Step 5: Monitor ────────────────────────────────────────────────
     print(f"\n── STEP 5: Monitor positions ──")
@@ -320,16 +375,24 @@ def test_e2e_dryrun(pipeline, capsys):
         # Check funding z-score
         z = compute_funding_zscore(funding_hist[-1], funding_hist)
         if abs(z) > 3:
-            sig = ExitSignal(pos.execution_id, "funding_outlier", "warning",
-                             f"Funding z-score={z:.2f} — outlier detected")
+            sig = ExitSignal(
+                pos.execution_id,
+                "funding_outlier",
+                "warning",
+                f"Funding z-score={z:.2f} — outlier detected",
+            )
             exit_signals.append(sig)
             print(f"  [WARN] {pos.symbol}: z-score={z:.2f} — outlier")
 
         # Check EWMA (funding collapse)
         ewma = compute_ewma(funding_hist, span=12)
         if ewma <= 0:
-            sig = ExitSignal(pos.execution_id, "funding_collapse", "critical",
-                             f"48h EWMA={ewma:.6f} — funding collapsed")
+            sig = ExitSignal(
+                pos.execution_id,
+                "funding_collapse",
+                "critical",
+                f"48h EWMA={ewma:.6f} — funding collapsed",
+            )
             exit_signals.append(sig)
             print(f"  [CRIT] {pos.symbol}: EWMA={ewma:.6f} — FUNDING COLLAPSED")
 
@@ -337,14 +400,18 @@ def test_e2e_dryrun(pipeline, capsys):
         mark = symbol_data[3]
         index = symbol_data[4]
         drift = compute_basis_drift(mark, index, pos.entry_basis)
-        print(f"  [OK]   {pos.symbol}: basis_drift={drift:.6f}, z-score={z:.2f}, ewma={ewma:.6f}")
+        print(
+            f"  [OK]   {pos.symbol}: basis_drift={drift:.6f}, z-score={z:.2f}, ewma={ewma:.6f}"
+        )
 
     # ── Step 6: Close on exit signals ──────────────────────────────────
     print(f"\n── STEP 6: Close positions ──")
 
     closed = []
     for pos in positions:
-        signals = [s for s in exit_signals if s.position_execution_id == pos.execution_id]
+        signals = [
+            s for s in exit_signals if s.position_execution_id == pos.execution_id
+        ]
         critical = [s for s in signals if s.severity == "critical"]
 
         if critical:
@@ -354,19 +421,24 @@ def test_e2e_dryrun(pipeline, capsys):
             pos.close_reason = reason
             closed.append(pos)
 
-            bus.publish("POSITION_CLOSED", {
-                "execution_id": pos.execution_id,
-                "symbol": pos.symbol,
-                "reason": reason,
-                "pnl": pos.cumulative_funding - pos.entry_cost,
-                "hold_days": 1,
-            })
+            bus.publish(
+                "POSITION_CLOSED",
+                {
+                    "execution_id": pos.execution_id,
+                    "symbol": pos.symbol,
+                    "reason": reason,
+                    "pnl": pos.cumulative_funding - pos.entry_cost,
+                    "hold_days": 1,
+                },
+            )
 
             pnl = pos.cumulative_funding - pos.entry_cost
             style = "PROFIT" if pnl > 0 else "LOSS"
-            print(f"  [CLOSE] {pos.symbol} — reason={reason}, "
-                  f"funding=${pos.cumulative_funding:.4f}, fees=${pos.entry_cost:.4f}, "
-                  f"pnl=${pnl:.4f} ({style})")
+            print(
+                f"  [CLOSE] {pos.symbol} — reason={reason}, "
+                f"funding=${pos.cumulative_funding:.4f}, fees=${pos.entry_cost:.4f}, "
+                f"pnl=${pnl:.4f} ({style})"
+            )
         else:
             print(f"  [HOLD]  {pos.symbol} — no critical signals")
 
@@ -405,8 +477,68 @@ def test_e2e_dryrun(pipeline, capsys):
     assert len(candidates) > 0, "Should have at least one candidate"
     assert len(positions) > 0, "Should open at least one position"
     assert len(event_log) > 0, "Should have events"
-    assert all(p.status in ("Open", "Closed") for p in positions), "All positions should have valid status"
+    assert all(p.status in ("Open", "Closed") for p in positions), (
+        "All positions should have valid status"
+    )
 
     # Verify DB state
     open_positions = query_open_positions_by_strategy(db_path, "funding_carry")
-    assert len(open_positions) == len(positions) - len(closed), "DB open count should match"
+    assert len(open_positions) == len(positions) - len(closed), (
+        "DB open count should match"
+    )
+
+
+def test_full_strategy_cycle(tmp_path):
+    """Fetch → detect → select → open paper → monitor → no exit → tick again."""
+    db = str(tmp_path / "test.db")
+    from fund_rate_arb.db import (
+        init_db,
+        migrate_db,
+        insert_funding_rates,
+        insert_spread_data,
+        insert_oi_snapshots,
+        get_connection,
+    )
+    from datetime import datetime, timezone, timedelta
+
+    init_db(db)
+    migrate_db(db)
+
+    # Seed fake high-funding data with recent timestamps
+    now = datetime.now(timezone.utc)
+    ts = now.isoformat()
+
+    symbols_data = [
+        ("TSLAUSDT", 0.0003, 50000.0, 49950.0),
+        ("NVDAUSDT", 0.00025, 3000.0, 2995.0),
+    ]
+
+    funding_rows = []
+    oi_rows = []
+    spread_rows = []
+    for symbol, rate, mark, index in symbols_data:
+        # 30 intervals of funding history (8h each)
+        for i in range(30):
+            ts_i = (now - timedelta(hours=8 * (30 - i))).isoformat()
+            funding_rows.append((symbol, "binance", ts_i, rate, rate, mark, index))
+            oi_rows.append((symbol, "binance", ts_i, 5_000_000.0))
+        # Spread data with recent timestamp
+        spread_rows.append((symbol, "binance", ts, mark, mark + 1.0, 1.0, mark))
+
+    insert_funding_rates(db, funding_rows)
+    insert_oi_snapshots(db, oi_rows)
+    insert_spread_data(db, spread_rows)
+
+    import asyncio
+    from fund_rate_arb.main import run_strategy_tick
+
+    # First tick — should detect signals and open positions
+    asyncio.run(run_strategy_tick(db))
+
+    # Verify positions were created in DB
+    conn = get_connection(db)
+    count = conn.execute(
+        "SELECT COUNT(*) FROM positions WHERE strategy_name = 'funding_carry'",
+    ).fetchone()[0]
+    conn.close()
+    assert count > 0, "Should open at least one position"
