@@ -286,13 +286,14 @@ class FundingCarry(BaseStrategy):
         reason: str,
         db_path: str,
     ) -> bool:
-        success = self.perp_executor.close_position(position, reason)
-        if success:
+        perp_ok = self.perp_executor.close_position(position, reason)
+        spot_ok = self.spot_executor.close_position(position, reason)
+        if perp_ok and spot_ok:
             position.status = "Closed"
             position.close_reason = reason
             self._update_position_status(position, db_path)
             logger.info("Closed %s: %s", position.symbol, reason)
-        return success
+        return perp_ok and spot_ok
 
     def _load_open_positions(self, db_path: str) -> list[CarryPosition]:
         from fund_rate_arb.db import query_open_positions_by_strategy
