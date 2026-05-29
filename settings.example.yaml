@@ -18,7 +18,7 @@ underlyings:
     binance_s: null
     hl_perp: BTC
     hl_spot: null
-    sector: crypto
+    sector: crypto_perp
 
   - ticker: TSLA
     name: Tesla
@@ -228,8 +228,8 @@ underlyings:
     binance_f: null
     binance_s: null
     hl_perp: SPX
-    hl_spot: SPX
-    sector: crypto
+    hl_spot: null
+    sector: crypto_perp
 
 
 # ---------------------------------------------------------------------------
