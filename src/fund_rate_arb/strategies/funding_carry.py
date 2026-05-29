@@ -86,18 +86,18 @@ class FundingCarry(BaseStrategy):
         db_path: str,
     ) -> CarryPosition | None:
         mark_price = getattr(signal, "_mark_price", 0)
-        if mark_price <= 0:
+        if not mark_price or mark_price <= 0:
             from fund_rate_arb.db import get_connection
 
             conn = get_connection(db_path)
             try:
                 row = conn.execute(
-                    "SELECT mark_price FROM spread_data "
+                    "SELECT mark_price FROM funding_rates "
                     "WHERE symbol = ? AND exchange = 'binance' "
                     "ORDER BY timestamp DESC LIMIT 1",
                     (signal.symbol + "USDT",),
                 ).fetchone()
-                mark_price = row[0] if row else 0
+                mark_price = float(row[0]) if row and row[0] else 0
             finally:
                 conn.close()
 
