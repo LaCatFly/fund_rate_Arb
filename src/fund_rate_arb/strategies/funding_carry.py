@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from fund_rate_arb.data.monitors import detect_oi_spike, detect_funding_regime_shift
 from fund_rate_arb.data.retriever import query_funding_window, query_oi_window
 from fund_rate_arb.execution.paper import PaperExecutor
+from fund_rate_arb.execution.live import LiveExecutor
 from fund_rate_arb.models.funding import (
     CarryPosition,
     ExitSignal,
@@ -25,17 +26,19 @@ class FundingCarry(BaseStrategy):
 
     def __init__(
         self,
-        executor: PaperExecutor,
+        executor: PaperExecutor | LiveExecutor,
         exit_engine: ExitRuleEngine,
         max_positions: int = 5,
         min_apy: float = 15.0,
         db_path: str = "fund_rate_arb.db",
+        notional_per_leg: float = 200.0,
     ):
         self.executor = executor
         self.exit_engine = exit_engine
         self.max_positions = max_positions
         self.min_apy = min_apy
         self.db_path = db_path
+        self.notional_per_leg = notional_per_leg
 
     @property
     def name(self) -> str:
@@ -58,8 +61,8 @@ class FundingCarry(BaseStrategy):
         new_signals = await self._fetch_signals(db_path)
         candidates = self.select(new_signals, open_positions)
 
-        for candidate in candidates:
-            pos = await self.open_position(candidate, db_path)
+        for signal, side in candidates:
+            pos = await self.open_position(signal, db_path, side=side)
             if pos is not None:
                 self._save_position(pos, db_path)
                 result.positions_opened += 1
@@ -71,19 +74,40 @@ class FundingCarry(BaseStrategy):
         self,
         signals: list[Signal],
         open_positions: list[CarryPosition],
-    ) -> list[Signal]:
-        available = self.max_positions - len(open_positions)
-        if available <= 0:
+    ) -> list[tuple[Signal, str]]:
+        """Return list of (signal, side) pairs for paired legs."""
+        existing_symbols = {p.symbol.replace("USDT", "").replace("/USDT:", "") for p in open_positions}
+        pairs_available = self.max_positions // 2 - len(
+            [p for p in open_positions if p.side == "SHORT"]
+        )
+        if pairs_available <= 0:
             return []
 
+        # Filter signals above threshold
         candidates = [s for s in signals if s.apy_net >= self.min_apy]
         candidates.sort(key=lambda s: s.apy_net, reverse=True)
-        return candidates[:available]
+
+        legs = []
+        for sig in candidates[:pairs_available]:
+            sym = sig.symbol
+            if sym in existing_symbols:
+                continue
+            # SHORT leg: high funding
+            legs.append((sig, "SHORT"))
+            # LONG leg: lowest funding (hedge)
+            hedge_candidates = [s for s in signals if s.symbol != sym]
+            if hedge_candidates:
+                hedge = min(hedge_candidates, key=lambda s: s.apy_net)
+                legs.append((hedge, "LONG"))
+            existing_symbols.add(sym)
+
+        return legs
 
     async def open_position(
         self,
         signal: Signal,
         db_path: str,
+        side: str = "SHORT",
     ) -> CarryPosition | None:
         mark_price = getattr(signal, "_mark_price", 0)
         if not mark_price or mark_price <= 0:
@@ -105,11 +129,11 @@ class FundingCarry(BaseStrategy):
             logger.warning("No mark price for %s, skipping", signal.symbol)
             return None
 
-        pos = self.executor.open_position(signal, mark_price=mark_price)
+        pos = self.executor.open_position(signal, mark_price=mark_price, side=side)
         if pos:
             logger.info(
-                "Opened SHORT %s: %.4f contracts @ %.2f",
-                pos.symbol,
+                "Opened %s %s: %.4f contracts @ %.2f",
+                side, pos.symbol,
                 pos.contracts,
                 pos.entry_price,
             )

@@ -21,16 +21,18 @@ class LiveExecutor:
 
     def open_position(
         self, signal: Signal, execution_id: str | None = None, mark_price: float = 0.0,
+        side: str = "SHORT",
     ) -> CarryPosition | None:
         if mark_price <= 0:
             return None
 
         contracts = self.notional_per_leg / mark_price
         symbol = signal.symbol + "USDT"
+        order_side = "sell" if side == "SHORT" else "buy"
 
         result = self.collector.place_order(
-            symbol=symbol, side="sell", amount=contracts,
-            order_type="market", position_side="SHORT",
+            symbol=symbol, side=order_side, amount=contracts,
+            order_type="market", position_side=side,
         )
         if result.status not in ("closed", "open"):
             logger.error("Order failed: %s", result.status)
@@ -39,7 +41,7 @@ class LiveExecutor:
         return CarryPosition(
             execution_id=execution_id or str(uuid.uuid4()),
             strategy_name="funding_carry", symbol=symbol,
-            exchange=self.collector.exchange_name, side="SHORT",
+            exchange=self.collector.exchange_name, side=side,
             contracts=round(contracts, 4),
             entry_price=result.average or mark_price,
             entry_basis=0.0, entry_cost=0.0, cumulative_funding=0.0,

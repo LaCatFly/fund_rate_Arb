@@ -597,7 +597,7 @@ def scan_strategy(
             from fund_rate_arb.strategies.funding_carry import FundingCarry
 
             collector = get_trading_collector()
-            executor = LiveExecutor(collector=collector, notional_per_leg=50.0)
+            executor = LiveExecutor(collector=collector, notional_per_leg=75.0)
             strategy = FundingCarry(
                 executor=executor,
                 exit_engine=ExitRuleEngine([
@@ -607,6 +607,7 @@ def scan_strategy(
                 ]),
                 max_positions=max_positions,
                 min_apy=min_apy,
+                notional_per_leg=75.0,
             )
             console.print("[yellow]Running strategy tick (LIVE)...[/]")
             result = await strategy.tick(db_path)
