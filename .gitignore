@@ -23,3 +23,4 @@ build/
 .codegraph/
 skills-output.json
 settings.local.yaml
+settings.yaml

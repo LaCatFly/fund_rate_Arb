@@ -115,7 +115,7 @@ class Underlying:
 
     @property
     def binance_spot(self) -> str | None:
-        """Auto-derive spot symbol: equity→{ticker}on (Convert), crypto→{ticker}USDT."""
+        """Auto-derive spot symbol: equity→{ticker}on (Binance Alpha API), crypto→{ticker}USDT."""
         if self.binance_f is None:
             return None
         if self.sector == "equity":

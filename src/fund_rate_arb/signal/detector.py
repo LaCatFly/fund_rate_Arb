@@ -35,6 +35,8 @@ class Signal:
     positive_ratio_72h: float = 0.0
     # OI
     oi_usd: float = 0.0
+    # Spot price (Binance Alpha API for equities)
+    spot_price: float = 0.0
     # Scoring
     quality_score: float = 0.0      # System 1 normalized score (0-1)
     score_daily: float = 0.0        # APY-based daily score
@@ -220,4 +222,3 @@ def _calc_basis(fr: FundingRate, spread: SpreadData) -> float:
     if not (fr.mark_price and fr.index_price and fr.index_price > 0):
         return 0.0
     return (fr.mark_price - fr.index_price) / fr.index_price * 100
-    return (fr.mark_price - mid) / mid * 100

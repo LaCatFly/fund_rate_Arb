@@ -17,6 +17,7 @@ from fund_rate_arb.signal.detector import (
     BINANCE_MAKER, BINANCE_TAKER, HL_MAKER, HL_TAKER,
     Signal, _calc_basis, calc_cost_pct, rank_signals,
 )
+from fund_rate_arb.data.alpha_prices import get_alpha_prices
 
 console = Console()
 
@@ -148,6 +149,9 @@ def generate_report(
     ranked = rank_signals(signals, history_map, oi_map=oi_history_map)
     ranked.sort(key=lambda s: s.unified_score, reverse=True)
 
+    # Fetch Alpha spot prices
+    alpha_prices = get_alpha_prices(db_path)
+
     results = []
     for s in ranked:
         sym_usdt = s.symbol + "USDT"
@@ -155,6 +159,9 @@ def generate_report(
         mark_row = next((f for f in rates if f.symbol == sym_usdt and f.exchange == ex_full), None)
         mark_price = mark_row.mark_price if mark_row else 0
         index_price = mark_row.index_price if mark_row else 0
+
+        spot_sym = s.symbol + "on"
+        spot_price = alpha_prices.get(spot_sym, 0)
 
         results.append({
             "symbol": s.symbol,
@@ -174,6 +181,7 @@ def generate_report(
             "interval_h": s.interval_h,
             "mark_price": mark_price,
             "index_price": index_price,
+            "spot_price": spot_price,
         })
 
     return results
@@ -189,18 +197,21 @@ def display_table(results: list[dict]) -> None:
     table.add_column("Basis%", justify="right")
     table.add_column("Spread", justify="right")
     table.add_column("OI USD", justify="right")
+    table.add_column("Spot $", justify="right")
     table.add_column("Q Score", justify="right")
     table.add_column("Pos%", justify="right")
     table.add_column("Unified", justify="right")
 
     for i, r in enumerate(results, 1):
         oi_str = f"${r['oi_usd']/1e6:.1f}M" if r["oi_usd"] >= 1e6 else f"${r['oi_usd']/1e3:.0f}K" if r["oi_usd"] else "N/A"
+        spot_str = f"${r['spot_price']:.2f}" if r["spot_price"] else "—"
         table.add_row(
             str(i), r["symbol"], r["exchange_short"],
             f"{r['apy_net']:.1f}%",
             f"{r['basis_pct']:+.4f}%",
             f"{r['spread_bps']:.1f}bp",
             oi_str,
+            spot_str,
             f"{r['quality_score']:.3f}",
             f"{r['positive_ratio']*100:.0f}%",
             f"{r['unified_score']:.2f}",
@@ -222,10 +233,11 @@ def save_report(results: list[dict], path: str, compact: bool = False) -> None:
         ]
         for i, r in enumerate(results, 1):
             oi_str = f" OI ${r['oi_usd']/1e6:.1f}M" if r["oi_usd"] >= 1e6 else ""
+            spot_str = f" | Spot ${r['spot_price']:.2f}" if r["spot_price"] else ""
             lines.append(
                 f"**{i}. {r['symbol']}** @{r['exchange_short']} — "
                 f"**{r['apy_net']:.1f}%** | Basis {r['basis_pct']:+.3f}% | "
-                f"Q {r['quality_score']:.3f} | Unified {r['unified_score']:.2f}{oi_str}"
+                f"Q {r['quality_score']:.3f} | Unified {r['unified_score']:.2f}{spot_str}{oi_str}"
             )
         lines.extend(["", f"_{len(results)} candidates_"])
     else:
@@ -237,13 +249,14 @@ def save_report(results: list[dict], path: str, compact: bool = False) -> None:
         ]
         for i, r in enumerate(results, 1):
             oi_str = f"${r['oi_usd']:,.0f}" if r["oi_usd"] else "N/A"
+            spot_str = f" | Spot: ${r['spot_price']:.2f}" if r["spot_price"] else ""
             lines.append(
                 f"{i}. **{r['symbol']}** @ {r['exchange_short']} — "
                 f"**{r['apy_net']:.1f}% APY Net** (gross {r['apy_gross']:.1f}%, cost {r['cost']:.2f}%)"
             )
             lines.append(
                 f"   Basis: {r['basis_pct']:+.4f}%  |  Spread: {r['spread_bps']:.1f}bps  |  "
-                f"OI: {oi_str}  |  Mark: ${r['mark_price']:.2f}"
+                f"OI: {oi_str}  |  Mark: ${r['mark_price']:.2f}{spot_str}"
             )
             lines.append(
                 f"   Q Score: {r['quality_score']:.4f}  |  "

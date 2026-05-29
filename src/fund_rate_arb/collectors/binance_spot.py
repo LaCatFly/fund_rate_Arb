@@ -1,13 +1,9 @@
-"""Binance spot collector via Convert API for Ondo tokenized stocks.
+"""Binance spot collector for Ondo tokenized stocks.
 
-Equity spot tokens (TSLAon, NVDAon, etc.) are Binance Alpha assets traded
-exclusively through the Convert API (/sapi/v1/convert/*), not the standard
-spot order book.
-
-API flow:
-    1. GET  /sapi/v1/convert/exchangeInfo  — verify pair + size limits
-    2. POST /sapi/v1/convert/getQuote      — signed, returns live ratio (15s valid)
-    3. POST /sapi/v1/convert/acceptQuote   — signed, executes the conversion
+Equity spot tokens (TSLAon, NVDAon, etc.) are Binance Alpha assets.
+Spot prices come from BinanceAlphaCollector via the public Alpha API
+(/bapi/defi/v1/...). Convert API (/sapi/v1/convert/*) is reserved
+for trade execution only.
 """
 
 from __future__ import annotations
@@ -32,7 +28,7 @@ SAPI_BASE = "https://api.binance.com"
 
 
 class BinanceSpotCollector(BaseCollector):
-    """Binance spot via Convert API for Ondo tokenized stocks."""
+    """Binance spot for Ondo tokens — prices via Alpha API, execution via Convert API."""
 
     @property
     def exchange_name(self) -> str:

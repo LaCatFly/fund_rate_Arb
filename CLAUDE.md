@@ -62,7 +62,8 @@ uv run fund-rate-arb history -s NVDA    # Funding rate history
 - **`settings.yaml` is gitignored** — `settings.example.yaml` is the committed template.
 - **Paper mode first** — `execution.paper_mode: true` in settings before any live orders.
 - **`.env` uses `TG_BOT_TOKEN` / `TG_CHAT_ID`** for Telegram alerts. Settings `extra="ignore"` so `APY_THRESHOLD` etc. pass through to `main.py` via `os.environ`.
-- **VPS proxy = null** — Japan VPS (Vultr 139.180.196.53) accesses Binance directly. Local dev uses `http://127.0.0.1:7897`.
+- **Binance API key** IP-whitelisted to VPS only (139.180.196.53). All authenticated Binance API calls (spot, fapi, convert) must run on VPS. Local dev has no API access.
+- **VPS proxy = null** — Japan VPS accesses Binance directly. Local dev uses `http://127.0.0.1:7897`.
 
 ## Deployment
 

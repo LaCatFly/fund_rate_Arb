@@ -414,6 +414,7 @@ class FundingCarry(BaseStrategy):
 
     async def _fetch_signals(self, db_path: str) -> list[Signal]:
         """Re-run signal detection on latest data, enriched with unified scores."""
+        from fund_rate_arb.data.alpha_prices import get_alpha_prices
         from fund_rate_arb.db import get_connection
         from fund_rate_arb.models.funding import FundingRate, SpreadData
         from fund_rate_arb.signal.detector import detect_signals, rank_signals
@@ -479,6 +480,13 @@ class FundingCarry(BaseStrategy):
                 min_oi_usd=self.min_oi_usd,
                 oi_map=oi_map,
             )
+
+            # Enrich with Alpha spot prices for equities
+            alpha_prices = get_alpha_prices(db_path)
+            for sig in signals:
+                spot_sym = sig.symbol + "on"
+                if spot_sym in alpha_prices:
+                    sig.spot_price = alpha_prices[spot_sym]
 
             # 72h funding + OI history for ranking
             cutoff = int(time.time() - 72 * 3600)
