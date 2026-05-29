@@ -139,23 +139,26 @@ _UNDERLYING_BY_TICKER = {u.ticker: u for u in UNDERLYINGS}
 # Per-exchange whitelists — derived from UNDERLYINGS
 # ---------------------------------------------------------------------------
 
+def _is_tradable_sector(sector: str) -> bool:
+    return sector not in ("crypto",)
+
 WHITELIST_BINANCE: set[str] = {
-    u.binance_f for u in UNDERLYINGS if u.binance_f is not None and u.sector != "crypto"
+    u.binance_f for u in UNDERLYINGS if u.binance_f is not None and _is_tradable_sector(u.sector)
 }
 
 WHITELIST_BINANCE_SPOT: set[str] = {
-    u.binance_s for u in UNDERLYINGS if u.binance_s is not None and u.sector != "crypto"
+    u.binance_s for u in UNDERLYINGS if u.binance_s is not None and _is_tradable_sector(u.sector)
 }
 
 WHITELIST_HYPERLIQUID: set[str] = {
-    u.hl_perp for u in UNDERLYINGS if u.hl_perp is not None and u.sector != "crypto"
+    u.hl_perp for u in UNDERLYINGS if u.hl_perp is not None and _is_tradable_sector(u.sector)
 }
 
 WHITELIST_HYPERLIQUID_SPOT: set[str] = {
-    u.hl_spot for u in UNDERLYINGS if u.hl_spot is not None and u.sector != "crypto"
+    u.hl_spot for u in UNDERLYINGS if u.hl_spot is not None and _is_tradable_sector(u.sector)
 }
 
-WHITELIST_SYMBOLS = sorted({u.ticker for u in UNDERLYINGS if u.sector != "crypto"})
+WHITELIST_SYMBOLS = sorted({u.ticker for u in UNDERLYINGS if _is_tradable_sector(u.sector)})
 
 # Module-level network constants (for collectors that import them directly)
 BINANCE_FUTURES_BASE: str = _RAW["network"]["binance_futures_base"]

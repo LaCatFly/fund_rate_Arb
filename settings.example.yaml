@@ -15,9 +15,9 @@ underlyings:
   - ticker: BTC
     name: Bitcoin
     binance_f: BTCUSDT
-    binance_s: null
+    binance_s: BTCUSDT
     hl_perp: BTC
-    hl_spot: null
+    hl_spot: BTC
     sector: crypto_perp
 
   - ticker: TSLA
