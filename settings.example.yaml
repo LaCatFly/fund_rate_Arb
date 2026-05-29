@@ -9,143 +9,146 @@
 # ---------------------------------------------------------------------------
 # Underlyings & cross-exchange mapping
 # Each entry maps one asset to its symbol on every venue.
-# Spot symbols are auto-derived: equity→{ticker}on (Convert API), crypto→{ticker}USDT
+# Spot symbols: equity→{ticker}on (Binance Alpha API), crypto→{ticker}USDT
+# HL perp: verified via /info allMids — only BTC, ETH, SOL, etc. (crypto).
+#   No equity perps exist on Hyperliquid (230 assets, all crypto).
 # ---------------------------------------------------------------------------
 underlyings:
   - ticker: BTC
     name: Bitcoin
     binance_f: BTCUSDT
     hl_perp: BTC
-    hl_spot: BTC
+    hl_spot: null
     sector: crypto_perp
 
+  # Equities — Binance perp + Hyperliquid (verified: NO equity perps on HL)
   - ticker: TSLA
     name: Tesla
     binance_f: TSLAUSDT
-    hl_perp: TSLA
+    hl_perp: null
     hl_spot: null
     sector: equity
 
   - ticker: NVDA
     name: NVIDIA
     binance_f: NVDAUSDT
-    hl_perp: NVDA
+    hl_perp: null
     hl_spot: null
     sector: equity
 
   - ticker: AAPL
     name: Apple
     binance_f: AAPLUSDT
-    hl_perp: AAPL
+    hl_perp: null
     hl_spot: null
     sector: equity
 
   - ticker: MSFT
     name: Microsoft
     binance_f: MSFTUSDT
-    hl_perp: MSFT
+    hl_perp: null
     hl_spot: null
     sector: equity
 
   - ticker: AMZN
     name: Amazon
     binance_f: AMZNUSDT
-    hl_perp: AMZN
+    hl_perp: null
     hl_spot: null
     sector: equity
 
   - ticker: META
     name: Meta Platforms
     binance_f: METAUSDT
-    hl_perp: META
+    hl_perp: null
     hl_spot: null
     sector: equity
 
   - ticker: GOOGL
     name: Alphabet
     binance_f: GOOGLUSDT
-    hl_perp: GOOGL
+    hl_perp: null
     hl_spot: null
     sector: equity
 
   - ticker: PLTR
     name: Palantir
     binance_f: PLTRUSDT
-    hl_perp: PLTR
+    hl_perp: null
     hl_spot: null
     sector: equity
 
   - ticker: MSTR
     name: MicroStrategy
     binance_f: MSTRUSDT
-    hl_perp: MSTR
+    hl_perp: null
     hl_spot: null
     sector: equity
 
   - ticker: COIN
     name: Coinbase
     binance_f: COINUSDT
-    hl_perp: COIN
+    hl_perp: null
     hl_spot: null
     sector: equity
 
   - ticker: AMD
     name: AMD
     binance_f: AMDUSDT
-    hl_perp: AMD
+    hl_perp: null
     hl_spot: null
     sector: equity
 
   - ticker: HOOD
     name: Robinhood
     binance_f: HOODUSDT
-    hl_perp: HOOD
+    hl_perp: null
     hl_spot: null
     sector: equity
 
   - ticker: ORCL
     name: Oracle
     binance_f: ORCLUSDT
-    hl_perp: ORCL
+    hl_perp: null
     hl_spot: null
     sector: equity
 
   - ticker: INTC
     name: Intel
     binance_f: INTCUSDT
-    hl_perp: INTC
+    hl_perp: null
     hl_spot: null
     sector: equity
 
   - ticker: NFLX
     name: Netflix
     binance_f: null
-    hl_perp: NFLX
+    hl_perp: null
     hl_spot: null
     sector: equity
 
   - ticker: BABA
     name: Alibaba
     binance_f: BABAUSDT
-    hl_perp: BABA
+    hl_perp: null
     hl_spot: null
     sector: equity
 
   - ticker: MU
     name: Micron
     binance_f: MUUSDT
-    hl_perp: MU
+    hl_perp: null
     hl_spot: null
     sector: equity
 
   - ticker: CRCL
     name: Circle
     binance_f: CRCLUSDT
-    hl_perp: CRCL
+    hl_perp: null
     hl_spot: null
     sector: equity
 
-  # TradFi perps on Binance only (no Hyperliquid equivalent)
+  # TradFi perps on Binance only
   - ticker: JPM
     name: JPMorgan
     binance_f: JPMUSDT
@@ -174,29 +177,30 @@ underlyings:
     hl_spot: null
     sector: equity
 
-  # Indices (Hyperliquid only)
+  # Indices (Hyperliquid only — verified: SPCX/SP500/XYZ100 do NOT exist on HL)
+  # These are dead entries — remove when confirmed unused
   - ticker: SPCX
     name: S&P 500 (CME)
     binance_f: null
-    hl_perp: SPCX
+    hl_perp: null
     hl_spot: null
     sector: index
 
   - ticker: SP500
     name: S&P 500
     binance_f: null
-    hl_perp: SP500
+    hl_perp: null
     hl_spot: null
     sector: index
 
   - ticker: XYZ100
     name: XYZ 100
     binance_f: null
-    hl_perp: XYZ100
+    hl_perp: null
     hl_spot: null
     sector: index
 
-  # Crypto reference (excluded from trading whitelists)
+  # Crypto reference (HL only, excluded from trading whitelists)
   - ticker: SPX
     name: SPX6900 memecoin
     binance_f: null
@@ -253,13 +257,10 @@ network:
   binance_proxy: "http://127.0.0.1:7897"   # Clash Meta mixed port
   binance_futures_base: "https://fapi.binance.com"
   hyperliquid_api: "https://api.hyperliquid.xyz"
-  # Hip-3 namespace prefix for equity perps on Hyperliquid
-  hip3_prefix: "xyz:"
 
 
 # ---------------------------------------------------------------------------
 # Strategies — per-strategy execution, selection, and exit rules
-# Each entry is a StrategySpec loaded by get_strategy_specs()
 # ---------------------------------------------------------------------------
 strategies:
   - name: funding_carry
