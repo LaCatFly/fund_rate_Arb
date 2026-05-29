@@ -508,9 +508,9 @@ def test_full_strategy_cycle(tmp_path):
     now = datetime.now(timezone.utc)
     ts = now.isoformat()
 
+    # Use TSM — test config will have both perp and spot
     symbols_data = [
-        ("TSLAUSDT", 0.0003, 50000.0, 49950.0),
-        ("NVDAUSDT", 0.00025, 3000.0, 2995.0),
+        ("TSMUSDT", 0.0003, 500.0, 499.0),
     ]
 
     funding_rows = []
@@ -529,16 +529,38 @@ def test_full_strategy_cycle(tmp_path):
     insert_oi_snapshots(db, oi_rows)
     insert_spread_data(db, spread_rows)
 
-    import asyncio
-    from fund_rate_arb.main import run_strategy_tick
+    # Inject test Underlying with BOTH perp and spot
+    from fund_rate_arb import config
+    from fund_rate_arb.config import Underlying
+    original = config.UNDERLYINGS
+    test_underlying = Underlying(
+        ticker="TSM", name="TSMC",
+        binance_f="TSMUSDT", binance_s="TSMUSDT",
+        hl_perp=None, hl_spot=None,
+        sector="crypto_perp",
+    )
+    config.UNDERLYINGS = [test_underlying]
+    config._UNDERLYING_BY_TICKER = {u.ticker: u for u in config.UNDERLYINGS}
 
-    # First tick — should detect signals and open positions
-    asyncio.run(run_strategy_tick(db))
+    # Also patch the whitelist-derived lists that signal detection uses
+    original_binance_f = config.BINANCE_FUTURES_BASE
+    config.BINANCE_FUTURES_BASE = ["TSMUSDT"]
 
-    # Verify positions were created in DB
-    conn = get_connection(db)
-    count = conn.execute(
-        "SELECT COUNT(*) FROM positions WHERE strategy_name = 'funding_carry'",
-    ).fetchone()[0]
-    conn.close()
-    assert count > 0, "Should open at least one position"
+    try:
+        import asyncio
+        from fund_rate_arb.main import run_strategy_tick
+
+        # First tick — should detect signals and open positions
+        asyncio.run(run_strategy_tick(db))
+
+        # Verify positions were created in DB
+        conn = get_connection(db)
+        count = conn.execute(
+            "SELECT COUNT(*) FROM positions WHERE strategy_name = 'funding_carry'",
+        ).fetchone()[0]
+        conn.close()
+        assert count > 0, "Should open at least one position"
+    finally:
+        config.UNDERLYINGS = original
+        config._UNDERLYING_BY_TICKER = {u.ticker: u for u in original}
+        config.BINANCE_FUTURES_BASE = original_binance_f

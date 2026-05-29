@@ -46,6 +46,16 @@ class FundingCarry(BaseStrategy):
     def name(self) -> str:
         return "funding_carry"
 
+    # Backwards-compatible alias for BaseStrategy ABC
+    async def open_position(
+        self,
+        signal: Signal,
+        db_path: str,
+        side: str = "SHORT",
+    ) -> CarryPosition | None:
+        """Open a single-leg position (backwards compat)."""
+        return await self._open_single_leg(signal, db_path, side=side)
+
     async def tick(self, db_path: str) -> StrategyResult:
         result = StrategyResult()
         self.db_path = db_path
@@ -80,6 +90,8 @@ class FundingCarry(BaseStrategy):
         open_positions: list[CarryPosition],
     ) -> list[Underlying]:
         """Return underlyings eligible for paired SHORT perp + LONG spot."""
+        from fund_rate_arb.config import UNDERLYINGS
+
         signal_map = {s.symbol: s for s in signals}
         existing_symbols = {
             p.symbol.replace("/USDT:USDT", "").replace("USDT", "")
@@ -107,6 +119,24 @@ class FundingCarry(BaseStrategy):
         # Sort by APY desc, take top N pairs
         candidates.sort(key=lambda x: x[1], reverse=True)
         return [u for u, _ in candidates[:pairs_available]]
+
+    async def _open_single_leg(
+        self,
+        signal: Signal,
+        db_path: str,
+        side: str = "SHORT",
+    ) -> CarryPosition | None:
+        """Open a single-leg position (for backwards compat / testing)."""
+        mark_price = self._get_mark_price(signal.symbol + "USDT", db_path)
+        if mark_price <= 0:
+            logger.warning("No mark price for %s, skipping", signal.symbol)
+            return None
+
+        executor = self.perp_executor if side == "SHORT" else self.spot_executor
+        pos = executor.open_position(signal, mark_price=mark_price, side=side)
+        if pos:
+            logger.info("Opened %s %s: %.4f @ %.2f", side, pos.symbol, pos.contracts, pos.entry_price)
+        return pos
 
     async def open_paired_position(
         self,

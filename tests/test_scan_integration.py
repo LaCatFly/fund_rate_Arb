@@ -15,7 +15,8 @@ async def test_strategy_tick_returns_result(tmp_path):
     migrate_db(db)
 
     strategy = FundingCarry(
-        executor=PaperExecutor(notional_per_leg=200.0),
+        perp_executor=PaperExecutor(notional_per_leg=200.0),
+        spot_executor=PaperExecutor(notional_per_leg=200.0),
         exit_engine=ExitRuleEngine([TimeBasedRule(max_hold_hours=168)]),
         max_positions=3,
         min_apy=15.0,

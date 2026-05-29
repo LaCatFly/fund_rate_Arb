@@ -20,8 +20,9 @@ class PaperExecutor:
         signal: Signal,
         execution_id: str | None = None,
         mark_price: float = 0.0,
+        side: str = "SHORT",
     ) -> CarryPosition | None:
-        """Open simulated SHORT position."""
+        """Open simulated position."""
         if mark_price <= 0:
             return None
 
@@ -31,7 +32,7 @@ class PaperExecutor:
             strategy_name="funding_carry",
             symbol=signal.symbol + "USDT",
             exchange="paper",
-            side="SHORT",
+            side=side,
             contracts=round(contracts, 4),
             entry_price=mark_price,
             entry_basis=0.0,

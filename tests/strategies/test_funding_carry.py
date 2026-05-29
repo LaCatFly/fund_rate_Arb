@@ -153,15 +153,17 @@ class TestSelection:
 
 class TestOpenPairedPosition:
     @pytest.mark.asyncio
-    async def test_opens_both_legs(self, strategy, btc_underlying):
+    async def test_opens_both_legs(self, strategy, btc_underlying, monkeypatch):
+        """Both perp and spot legs are opened."""
+        monkeypatch.setattr(strategy, "_get_mark_price", lambda sym, db: 50000.0)
         pos = await strategy.open_paired_position(btc_underlying, "test.db")
         assert pos is not None
         assert strategy.perp_executor.open_position.called
         assert strategy.spot_executor.open_position.called
 
     @pytest.mark.asyncio
-    async def test_returns_none_on_no_mark_price(self, strategy, btc_underlying):
-        """No mark price in DB returns None."""
+    async def test_returns_none_on_no_mark_price(self, strategy, btc_underlying, monkeypatch):
+        """No mark price returns None."""
+        monkeypatch.setattr(strategy, "_get_mark_price", lambda sym, db: 0.0)
         pos = await strategy.open_paired_position(btc_underlying, "test.db")
-        # DB has no BTCUSDT data, so returns None
         assert pos is None

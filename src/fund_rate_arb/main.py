@@ -85,7 +85,8 @@ async def run_strategy_tick(db_path: str) -> None:
     from fund_rate_arb.strategies.funding_carry import FundingCarry
 
     strategy = FundingCarry(
-        executor=PaperExecutor(notional_per_leg=200.0),
+        perp_executor=PaperExecutor(notional_per_leg=200.0),
+        spot_executor=PaperExecutor(notional_per_leg=200.0),
         exit_engine=ExitRuleEngine(
             [
                 TimeBasedRule(max_hold_hours=168),
