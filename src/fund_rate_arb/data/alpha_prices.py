@@ -57,7 +57,7 @@ def get_alpha_prices(db_path: str | None = None, force_refresh: bool = False) ->
 def _fetch_alpha_prices() -> dict[str, float]:
     """Hit the Alpha API and return filtered prices."""
     try:
-        proxy_url = os.environ.get("BINANCE_PROXY", BINANCE_PROXY) or None
+        proxy_url = os.environ.get("BINANCE_PROXY", BINANCE_PROXY)
         resp = httpx.get(
             f"{_ALPHA_API_BASE}/bapi/defi/v1/public/wallet-direct/buw/wallet/cex/alpha/all/token/list",
             headers={"Content-Type": "application/json"},

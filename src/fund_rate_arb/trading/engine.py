@@ -153,6 +153,33 @@ class TradingEngine:
         )
         insert_trade(self.db_path, row)
 
+    def all_positions(self) -> dict[str, Any]:
+        """Get both spot balances and perp positions."""
+        account = self.collector.fetch_account_info()
+        raw_balance = self.collector.fetch_balance()
+        positions = self.collector.fetch_positions()
+
+        # Parse spot balances: papi_get_balance returns a list with asset/free/locked
+        spot_holdings = []
+        if isinstance(raw_balance, list):
+            for item in raw_balance:
+                free = float(item.get("free", 0))
+                locked = float(item.get("locked", 0))
+                total = free + locked
+                if total > 0:
+                    spot_holdings.append({
+                        "asset": item.get("asset", "UNKNOWN"),
+                        "free": free,
+                        "locked": locked,
+                        "total": total,
+                    })
+
+        return {
+            "account": account,
+            "spot_holdings": spot_holdings,
+            "perp_positions": positions,
+        }
+
     def pm_status(self) -> dict[str, Any]:
         """Get PM account status for CLI display."""
         from fund_rate_arb.db import query_open_positions, query_recent_trades
