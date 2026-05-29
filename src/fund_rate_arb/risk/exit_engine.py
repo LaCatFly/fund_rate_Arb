@@ -84,8 +84,31 @@ class APYThresholdRule(ExitRule):
                 ExitSignal(
                     position_execution_id=position.execution_id,
                     rule_type="apy_threshold",
-                    severity="warning",
+                    severity="critical",
                     message=f"APY {apy:.1f}% below {self.min_apy}% minimum",
+                )
+            ]
+        return []
+
+
+class MaxLossRule(ExitRule):
+    """Exit when unrealized loss exceeds threshold percentage of notional."""
+
+    def __init__(self, max_loss_pct: float = 5.0):
+        self.max_loss_pct = max_loss_pct
+
+    def check(self, position: CarryPosition, market: MarketData) -> list[ExitSignal]:
+        if position.notional_usdt == 0 or position.entry_price == 0:
+            return []
+        price_loss = abs(market.current_mark - position.entry_price) * position.contracts
+        loss_pct = price_loss / position.notional_usdt * 100
+        if loss_pct >= self.max_loss_pct:
+            return [
+                ExitSignal(
+                    position_execution_id=position.execution_id,
+                    rule_type="max_loss",
+                    severity="critical",
+                    message=f"Loss {loss_pct:.1f}% exceeds {self.max_loss_pct}% threshold",
                 )
             ]
         return []

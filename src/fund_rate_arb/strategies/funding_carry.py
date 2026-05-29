@@ -7,7 +7,11 @@ import uuid
 from datetime import datetime, timezone
 
 from fund_rate_arb.config import UNDERLYINGS, Underlying
-from fund_rate_arb.data.monitors import detect_oi_spike, detect_funding_regime_shift
+from fund_rate_arb.data.monitors import (
+    compute_basis_drift,
+    detect_funding_regime_shift,
+    detect_oi_spike,
+)
 from fund_rate_arb.data.retriever import query_funding_window, query_oi_window
 from fund_rate_arb.models.funding import (
     CarryPosition,
@@ -33,7 +37,10 @@ class FundingCarry(BaseStrategy):
         min_apy: float = 15.0,
         db_path: str = "fund_rate_arb.db",
         notional_per_leg: float = 200.0,
+        allocator=None,
     ):
+        from fund_rate_arb.execution.allocator import Allocator
+
         self.perp_executor = perp_executor
         self.spot_executor = spot_executor
         self.exit_engine = exit_engine
@@ -41,6 +48,11 @@ class FundingCarry(BaseStrategy):
         self.min_apy = min_apy
         self.db_path = db_path
         self.notional_per_leg = notional_per_leg
+        self.allocator = allocator or Allocator(
+            total_capital=notional_per_leg * max_positions * 2,
+            max_concurrent=max_positions,
+            notional_per_leg=notional_per_leg * 2,
+        )
 
     @property
     def name(self) -> str:
@@ -61,6 +73,7 @@ class FundingCarry(BaseStrategy):
         self.db_path = db_path
 
         open_positions = self._load_open_positions(db_path)
+        self._sync_allocator(open_positions)
 
         # Monitor and exit positions with critical signals
         for pos in open_positions:
@@ -76,8 +89,11 @@ class FundingCarry(BaseStrategy):
         pairs = self.select(new_signals, open_positions)
 
         for underlying in pairs:
+            if not self.allocator.can_allocate():
+                break
             pos = await self.open_paired_position(underlying, db_path)
             if pos is not None:
+                self.allocator.allocate()
                 self._save_position(pos, db_path)
                 result.positions_opened += 1
 
@@ -97,16 +113,13 @@ class FundingCarry(BaseStrategy):
             p.symbol.replace("/USDT:USDT", "").replace("USDT", "")
             for p in open_positions
         }
-        pairs_available = self.max_positions // 2 - len(
-            [p for p in open_positions if p.side == "SHORT"]
-        )
-        if pairs_available <= 0:
+        if not self.allocator.can_allocate():
             return []
 
         # Only underlyings with BOTH perp and spot, above APY threshold
         candidates = []
         for u in UNDERLYINGS:
-            if u.binance_f is None or u.binance_s is None:
+            if u.binance_f is None or u.binance_spot is None:
                 continue
             perp_symbol = u.binance_f.removesuffix("USDT")
             if perp_symbol in existing_symbols:
@@ -114,11 +127,11 @@ class FundingCarry(BaseStrategy):
             sig = signal_map.get(perp_symbol)
             if sig is None or sig.apy_net < self.min_apy:
                 continue
-            candidates.append((u, sig.apy_net))
+            candidates.append((u, sig.score_weekly))
 
-        # Sort by APY desc, take top N pairs
+        # Sort by weekly score desc, take top N pairs
         candidates.sort(key=lambda x: x[1], reverse=True)
-        return [u for u, _ in candidates[:pairs_available]]
+        return [u for u, _ in candidates[:self.allocator.available_slots]]
 
     async def _open_single_leg(
         self,
@@ -146,7 +159,7 @@ class FundingCarry(BaseStrategy):
         """Open SHORT perp + LONG spot simultaneously."""
         execution_id = str(uuid.uuid4())
         perp_symbol = underlying.binance_f
-        spot_symbol = underlying.binance_s
+        spot_symbol = underlying.binance_spot
 
         # Get mark price from DB
         mark_price = self._get_mark_price(perp_symbol, db_path)
@@ -224,6 +237,22 @@ class FundingCarry(BaseStrategy):
         finally:
             conn.close()
 
+    def _get_index_price(self, symbol: str, db_path: str) -> float:
+        """Get latest index price from DB."""
+        from fund_rate_arb.db import get_connection
+
+        conn = get_connection(db_path)
+        try:
+            row = conn.execute(
+                "SELECT index_price FROM funding_rates "
+                "WHERE symbol = ? AND exchange = 'binance' "
+                "ORDER BY timestamp DESC LIMIT 1",
+                (symbol,),
+            ).fetchone()
+            return float(row[0]) if row and row[0] else 0
+        finally:
+            conn.close()
+
     async def monitor_position(
         self,
         position: CarryPosition,
@@ -235,17 +264,37 @@ class FundingCarry(BaseStrategy):
         funding_48h = query_funding_window(db_path, symbol, exchange, 48)
         oi_8h = query_oi_window(db_path, symbol, exchange, 8)
 
+        live_mark = self._get_mark_price(symbol, db_path)
+        live_index = self._get_index_price(symbol, db_path)
+
         market = MarketData(
             symbol=symbol,
             exchange=exchange,
-            current_mark=position.entry_price,
-            current_index=position.entry_price,
-            current_basis=position.entry_basis,
+            current_mark=live_mark or position.entry_price,
+            current_index=live_index or position.entry_price,
+            current_basis=(
+                (live_mark - live_index) / live_index
+                if live_mark and live_index
+                else position.entry_basis
+            ),
             funding_history_48h=funding_48h,
             oi_window_8h=oi_8h,
         )
 
         exits = self.exit_engine.check_all(position, market)
+
+        basis_drift = compute_basis_drift(
+            market.current_mark, market.current_index, position.entry_basis
+        )
+        if basis_drift > 0.02:
+            exits.append(
+                ExitSignal(
+                    position_execution_id=position.execution_id,
+                    rule_type="basis_drift",
+                    severity="critical",
+                    message=f"Basis drift {basis_drift:.4f} exceeds 2% threshold",
+                )
+            )
 
         oi_spike = detect_oi_spike(oi_8h)
         if oi_spike.triggered:
@@ -253,7 +302,7 @@ class FundingCarry(BaseStrategy):
                 ExitSignal(
                     position_execution_id=position.execution_id,
                     rule_type="oi_spike",
-                    severity="warning",
+                    severity="critical",
                     message=oi_spike.message,
                 )
             )
@@ -268,7 +317,7 @@ class FundingCarry(BaseStrategy):
                     ExitSignal(
                         position_execution_id=position.execution_id,
                         rule_type="regime_shift",
-                        severity="warning",
+                        severity="critical",
                         message=regime_shift.message,
                     )
                 )
@@ -292,8 +341,13 @@ class FundingCarry(BaseStrategy):
             position.status = "Closed"
             position.close_reason = reason
             self._update_position_status(position, db_path)
+            self.allocator.release()
             logger.info("Closed %s: %s", position.symbol, reason)
         return perp_ok and spot_ok
+
+    def _sync_allocator(self, open_positions: list[CarryPosition]) -> None:
+        """Sync allocator slot count from DB open positions."""
+        self.allocator._used_slots = len(open_positions)
 
     def _load_open_positions(self, db_path: str) -> list[CarryPosition]:
         from fund_rate_arb.db import query_open_positions_by_strategy
@@ -355,9 +409,9 @@ class FundingCarry(BaseStrategy):
         )
 
     async def _fetch_signals(self, db_path: str) -> list[Signal]:
-        """Re-run signal detection on latest data."""
-        from fund_rate_arb.db import query_all_latest
-        from fund_rate_arb.signal.detector import detect_signals
+        """Re-run signal detection on latest data, enriched with weekly scores."""
+        from fund_rate_arb.db import query_all_latest, get_connection
+        from fund_rate_arb.signal.detector import detect_signals, rank_signals
 
         data = query_all_latest(db_path, exchange="binance")
         if not data:
@@ -390,4 +444,22 @@ class FundingCarry(BaseStrategy):
                     )
                 )
 
-        return detect_signals(rates, spreads, apy_threshold=self.min_apy)
+        signals = detect_signals(rates, spreads, apy_threshold=self.min_apy)
+
+        history_map: dict[tuple[str, str], list[float]] = {}
+        conn = get_connection(db_path)
+        try:
+            for sig in signals:
+                symbol_usdt = sig.symbol + "USDT"
+                rows = conn.execute(
+                    "SELECT funding_rate FROM funding_rates "
+                    "WHERE symbol = ? AND exchange = 'binance' "
+                    "ORDER BY timestamp DESC LIMIT 27",
+                    (symbol_usdt,),
+                ).fetchall()
+                if rows:
+                    history_map[("BN", sig.symbol)] = [r[0] for r in rows]
+        finally:
+            conn.close()
+
+        return rank_signals(signals, history_map)

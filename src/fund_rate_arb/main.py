@@ -80,6 +80,7 @@ async def run_strategy_tick(db_path: str) -> None:
         APYThresholdRule,
         ExitRuleEngine,
         FundingFlipRule,
+        MaxLossRule,
         TimeBasedRule,
     )
     from fund_rate_arb.strategies.funding_carry import FundingCarry
@@ -92,6 +93,7 @@ async def run_strategy_tick(db_path: str) -> None:
                 TimeBasedRule(max_hold_hours=168),
                 FundingFlipRule(consecutive_neg=3),
                 APYThresholdRule(min_apy=10.0),
+                MaxLossRule(max_loss_pct=5.0),
             ]
         ),
         max_positions=5,

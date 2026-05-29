@@ -535,7 +535,7 @@ def test_full_strategy_cycle(tmp_path):
     original = config.UNDERLYINGS
     test_underlying = Underlying(
         ticker="TSM", name="TSMC",
-        binance_f="TSMUSDT", binance_s="TSMUSDT",
+        binance_f="TSMUSDT",
         hl_perp=None, hl_spot=None,
         sector="crypto_perp",
     )

@@ -109,10 +109,20 @@ class Underlying:
     ticker: str
     name: str
     binance_f: str | None
-    binance_s: str | None
     hl_perp: str | None
     hl_spot: str | None
     sector: str
+
+    @property
+    def binance_spot(self) -> str | None:
+        """Auto-derive spot symbol: equity→{ticker}on (Convert), crypto→{ticker}USDT."""
+        if self.binance_f is None:
+            return None
+        if self.sector == "equity":
+            return f"{self.ticker}on"
+        if self.sector in ("crypto_perp", "crypto"):
+            return f"{self.ticker}USDT"
+        return None
 
 
 def _parse_underlyings(raw: list[dict]) -> list[Underlying]:
@@ -123,7 +133,6 @@ def _parse_underlyings(raw: list[dict]) -> list[Underlying]:
             ticker=entry["ticker"],
             name=entry.get("name", entry["ticker"]),
             binance_f=entry.get("binance_f"),
-            binance_s=entry.get("binance_s"),
             hl_perp=entry.get("hl_perp"),
             hl_spot=entry.get("hl_spot"),
             sector=entry.get("sector", "equity"),
@@ -147,7 +156,7 @@ WHITELIST_BINANCE: set[str] = {
 }
 
 WHITELIST_BINANCE_SPOT: set[str] = {
-    u.binance_s for u in UNDERLYINGS if u.binance_s is not None and _is_tradable_sector(u.sector)
+    u.binance_spot for u in UNDERLYINGS if u.binance_spot is not None and _is_tradable_sector(u.sector)
 }
 
 WHITELIST_HYPERLIQUID: set[str] = {

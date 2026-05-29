@@ -13,7 +13,7 @@ from fund_rate_arb.config import Underlying
 def btc_underlying():
     return Underlying(
         ticker="BTC", name="Bitcoin",
-        binance_f="BTCUSDT", binance_s="BTCUSDT",
+        binance_f="BTCUSDT",
         hl_perp="BTC", hl_spot="BTC",
         sector="crypto_perp",
     )
@@ -104,7 +104,7 @@ class TestSelection:
         """Underlying with only perp (no spot) is excluded."""
         no_spot = Underlying(
             ticker="TSM", name="TSMC",
-            binance_f="TSMUSDT", binance_s=None,
+            binance_f=None,
             hl_perp=None, hl_spot=None,
             sector="equity",
         )
@@ -126,7 +126,7 @@ class TestSelection:
                 strategy_name="funding_carry",
                 symbol=f"SYM{i}/USDT",
                 exchange="binance",
-                side="SHORT",
+                side="NEUTRAL",
                 contracts=0.01,
                 entry_price=100.0,
                 entry_basis=0,
@@ -137,8 +137,9 @@ class TestSelection:
                 max_break_even_days=10,
                 status="Open",
             )
-            for i in range(3)  # 3 SHORTs = max pairs = 0
+            for i in range(6)  # 6 positions = allocator full
         ]
+        strategy._sync_allocator(open_pos)
         from fund_rate_arb import config
         original = config.UNDERLYINGS
         config.UNDERLYINGS = [btc_underlying]
