@@ -590,16 +590,20 @@ def scan_strategy(
             await run_strategy_tick(db_path)
         else:
             from fund_rate_arb.collectors import get_trading_collector
+            from fund_rate_arb.collectors.binance_spot import BinanceSpotCollector
             from fund_rate_arb.execution.live import LiveExecutor
             from fund_rate_arb.risk.exit_engine import (
                 APYThresholdRule, FundingFlipRule, TimeBasedRule, ExitRuleEngine,
             )
             from fund_rate_arb.strategies.funding_carry import FundingCarry
 
-            collector = get_trading_collector()
-            executor = LiveExecutor(collector=collector, notional_per_leg=75.0)
+            perp_collector = get_trading_collector()
+            spot_collector = BinanceSpotCollector()
+            perp_executor = LiveExecutor(collector=perp_collector, notional_per_leg=75.0)
+            spot_executor = LiveExecutor(collector=spot_collector, notional_per_leg=75.0)
             strategy = FundingCarry(
-                executor=executor,
+                perp_executor=perp_executor,
+                spot_executor=spot_executor,
                 exit_engine=ExitRuleEngine([
                     TimeBasedRule(max_hold_hours=168),
                     FundingFlipRule(consecutive_neg=3),

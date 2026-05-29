@@ -1,6 +1,8 @@
 """Collectors package."""
 from fund_rate_arb.collectors.base import BaseCollector as BaseCollector
 from fund_rate_arb.collectors.binance import BinanceCollector as BinanceCollector
+from fund_rate_arb.collectors.binance_spot import BinanceSpotCollector as BinanceSpotCollector
+from fund_rate_arb.collectors.classic_futures import ClassicFuturesCollector as ClassicFuturesCollector
 from fund_rate_arb.collectors.hyperliquid import HyperliquidCollector as HyperliquidCollector
 
 

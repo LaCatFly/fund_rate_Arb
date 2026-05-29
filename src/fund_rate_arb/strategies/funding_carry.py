@@ -1,14 +1,14 @@
-"""Funding rate carry strategy — short high-funding perps."""
+"""Funding rate carry strategy — SHORT perp + LONG spot on same underlying."""
 
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import datetime, timezone
 
+from fund_rate_arb.config import UNDERLYINGS, Underlying
 from fund_rate_arb.data.monitors import detect_oi_spike, detect_funding_regime_shift
 from fund_rate_arb.data.retriever import query_funding_window, query_oi_window
-from fund_rate_arb.execution.paper import PaperExecutor
-from fund_rate_arb.execution.live import LiveExecutor
 from fund_rate_arb.models.funding import (
     CarryPosition,
     ExitSignal,
@@ -22,18 +22,20 @@ logger = logging.getLogger(__name__)
 
 
 class FundingCarry(BaseStrategy):
-    """Short the highest-funding-rate perps, collect payments."""
+    """SHORT perpetual + LONG spot on same underlying, collect funding."""
 
     def __init__(
         self,
-        executor: PaperExecutor | LiveExecutor,
+        perp_executor,
+        spot_executor,
         exit_engine: ExitRuleEngine,
         max_positions: int = 5,
         min_apy: float = 15.0,
         db_path: str = "fund_rate_arb.db",
         notional_per_leg: float = 200.0,
     ):
-        self.executor = executor
+        self.perp_executor = perp_executor
+        self.spot_executor = spot_executor
         self.exit_engine = exit_engine
         self.max_positions = max_positions
         self.min_apy = min_apy
@@ -50,6 +52,7 @@ class FundingCarry(BaseStrategy):
 
         open_positions = self._load_open_positions(db_path)
 
+        # Monitor and exit positions with critical signals
         for pos in open_positions:
             exits = await self.monitor_position(pos, db_path)
             for exit_sig in exits:
@@ -58,11 +61,12 @@ class FundingCarry(BaseStrategy):
                     if closed:
                         result.positions_closed += 1
 
+        # Fetch signals and select paired trades
         new_signals = await self._fetch_signals(db_path)
-        candidates = self.select(new_signals, open_positions)
+        pairs = self.select(new_signals, open_positions)
 
-        for signal, side in candidates:
-            pos = await self.open_position(signal, db_path, side=side)
+        for underlying in pairs:
+            pos = await self.open_paired_position(underlying, db_path)
             if pos is not None:
                 self._save_position(pos, db_path)
                 result.positions_opened += 1
@@ -74,91 +78,128 @@ class FundingCarry(BaseStrategy):
         self,
         signals: list[Signal],
         open_positions: list[CarryPosition],
-    ) -> list[tuple[Signal, str]]:
-        """Return list of (signal, side) pairs for paired legs."""
-        existing_symbols = {p.symbol.replace("USDT", "").replace("/USDT:", "") for p in open_positions}
-        existing_shorts = len([p for p in open_positions if p.side == "SHORT"])
-        pairs_available = min(self.max_positions // 2, self.max_positions // 2 - existing_shorts)
+    ) -> list[Underlying]:
+        """Return underlyings eligible for paired SHORT perp + LONG spot."""
+        signal_map = {s.symbol: s for s in signals}
+        existing_symbols = {
+            p.symbol.replace("/USDT:USDT", "").replace("USDT", "")
+            for p in open_positions
+        }
+        pairs_available = self.max_positions // 2 - len(
+            [p for p in open_positions if p.side == "SHORT"]
+        )
         if pairs_available <= 0:
             return []
 
-        # Filter signals above threshold, sorted by APY desc
-        candidates = [s for s in signals if s.apy_net >= self.min_apy
-                      and s.symbol not in existing_symbols]
-        candidates.sort(key=lambda s: s.apy_net, reverse=True)
-
-        legs = []
-        used_symbols = set(existing_symbols)
-        for sig in candidates:
-            if len(legs) >= pairs_available * 2:
-                break
-            sym = sig.symbol
-            if sym in used_symbols:
+        # Only underlyings with BOTH perp and spot, above APY threshold
+        candidates = []
+        for u in UNDERLYINGS:
+            if u.binance_f is None or u.binance_s is None:
                 continue
+            perp_symbol = u.binance_f.removesuffix("USDT")
+            if perp_symbol in existing_symbols:
+                continue
+            sig = signal_map.get(perp_symbol)
+            if sig is None or sig.apy_net < self.min_apy:
+                continue
+            candidates.append((u, sig.apy_net))
 
-            # SHORT leg: high funding
-            legs.append((sig, "SHORT"))
-            used_symbols.add(sym)
+        # Sort by APY desc, take top N pairs
+        candidates.sort(key=lambda x: x[1], reverse=True)
+        return [u for u, _ in candidates[:pairs_available]]
 
-            # LONG leg: lowest APY candidate not already used
-            hedge_candidates = [
-                s for s in signals
-                if s.symbol != sym
-                and s.symbol not in used_symbols
-            ]
-            if hedge_candidates:
-                hedge = min(hedge_candidates, key=lambda s: s.apy_net)
-                legs.append((hedge, "LONG"))
-                used_symbols.add(hedge.symbol)
-
-        # Ensure even number of legs (pairs only)
-        if len(legs) % 2 != 0:
-            legs = legs[:-1]
-
-        return legs
-
-    async def open_position(
+    async def open_paired_position(
         self,
-        signal: Signal,
+        underlying: Underlying,
         db_path: str,
-        side: str = "SHORT",
     ) -> CarryPosition | None:
-        mark_price = getattr(signal, "_mark_price", 0)
-        if not mark_price or mark_price <= 0:
-            from fund_rate_arb.db import get_connection
+        """Open SHORT perp + LONG spot simultaneously."""
+        execution_id = str(uuid.uuid4())
+        perp_symbol = underlying.binance_f
+        spot_symbol = underlying.binance_s
 
-            conn = get_connection(db_path)
-            try:
-                row = conn.execute(
-                    "SELECT mark_price FROM funding_rates "
-                    "WHERE symbol = ? AND exchange = 'binance' "
-                    "ORDER BY timestamp DESC LIMIT 1",
-                    (signal.symbol + "USDT",),
-                ).fetchone()
-                mark_price = float(row[0]) if row and row[0] else 0
-            finally:
-                conn.close()
-
+        # Get mark price from DB
+        mark_price = self._get_mark_price(perp_symbol, db_path)
         if mark_price <= 0:
-            logger.warning("No mark price for %s, skipping", signal.symbol)
+            logger.warning("No mark price for %s, skipping", underlying.ticker)
             return None
 
-        pos = self.executor.open_position(signal, mark_price=mark_price, side=side)
-        if pos:
-            logger.info(
-                "Opened %s %s: %.4f contracts @ %.2f",
-                side, pos.symbol,
-                pos.contracts,
-                pos.entry_price,
-            )
+        # Get spot price from DB (use same mark as approximation)
+        spot_price = self._get_mark_price(spot_symbol, db_path) or mark_price
+
+        contracts = self.notional_per_leg / mark_price
+        spot_amount = self.notional_per_leg / spot_price
+
+        # Open SHORT perp
+        perp_sig = Signal(
+            exchange="BN", symbol=underlying.ticker,
+            apy_net=0.0, apy_gross=0.0, cost=0.0,
+            basis_pct=0.0, spread_bps=0.0, interval_h=8,
+        )
+        perp_pos = self.perp_executor.open_position(
+            perp_sig, execution_id=f"{execution_id}_perp",
+            mark_price=mark_price, side="SHORT",
+        )
+        if not perp_pos:
+            logger.error("Perp leg failed for %s", underlying.ticker)
+            return None
+
+        # Open LONG spot
+        spot_sig = Signal(
+            exchange="BN", symbol=underlying.ticker,
+            apy_net=0.0, apy_gross=0.0, cost=0.0,
+            basis_pct=0.0, spread_bps=0.0, interval_h=8,
+        )
+        spot_pos = self.spot_executor.open_position(
+            spot_sig, execution_id=f"{execution_id}_spot",
+            mark_price=spot_price, side="LONG",
+        )
+        if not spot_pos:
+            logger.error("Spot leg failed for %s, closing perp", underlying.ticker)
+            self.perp_executor.close_position(perp_pos, "spot_leg_failed")
+            return None
+
+        # Return combined position record
+        pos = CarryPosition(
+            execution_id=execution_id,
+            strategy_name="funding_carry",
+            symbol=f"{underlying.ticker}/USDT",
+            exchange="binance", side="NEUTRAL",
+            contracts=round(contracts, 4),
+            entry_price=mark_price,
+            entry_basis=0.0, entry_cost=0.0, cumulative_funding=0.0,
+            notional_usdt=self.notional_per_leg * 2,
+            opened_at=datetime.now(timezone.utc).isoformat(),
+            max_break_even_days=10, status="Open",
+        )
+        logger.info(
+            "Opened paired %s: SHORT %.4f perp @ %.2f + LONG %.4f spot @ %.2f",
+            underlying.ticker, contracts, mark_price, spot_amount, spot_price,
+        )
         return pos
+
+    def _get_mark_price(self, symbol: str, db_path: str) -> float:
+        """Get latest mark price from DB."""
+        from fund_rate_arb.db import get_connection
+
+        conn = get_connection(db_path)
+        try:
+            row = conn.execute(
+                "SELECT mark_price FROM funding_rates "
+                "WHERE symbol = ? AND exchange = 'binance' "
+                "ORDER BY timestamp DESC LIMIT 1",
+                (symbol,),
+            ).fetchone()
+            return float(row[0]) if row and row[0] else 0
+        finally:
+            conn.close()
 
     async def monitor_position(
         self,
         position: CarryPosition,
         db_path: str,
     ) -> list[ExitSignal]:
-        symbol = position.symbol
+        symbol = position.symbol.split("/")[0] + "USDT"
         exchange = "binance"
 
         funding_48h = query_funding_window(db_path, symbol, exchange, 48)
@@ -215,7 +256,7 @@ class FundingCarry(BaseStrategy):
         reason: str,
         db_path: str,
     ) -> bool:
-        success = self.executor.close_position(position, reason)
+        success = self.perp_executor.close_position(position, reason)
         if success:
             position.status = "Closed"
             position.close_reason = reason
