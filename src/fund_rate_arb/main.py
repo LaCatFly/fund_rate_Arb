@@ -8,7 +8,6 @@ import os
 import signal as sig
 
 from fund_rate_arb.collectors.binance import BinanceCollector
-from fund_rate_arb.collectors.hyperliquid import HyperliquidCollector
 from fund_rate_arb.config import get_strategy_specs
 from fund_rate_arb.db import (
     init_db,
@@ -102,7 +101,6 @@ async def main() -> None:
     init_db(DB_PATH)
 
     bn_collector = BinanceCollector()
-    hl_collector = HyperliquidCollector()
 
     scheduler = PollScheduler(
         hl_interval=3600,
@@ -128,7 +126,7 @@ async def main() -> None:
 
     try:
         await scheduler.run(
-            hl_callback=lambda: scan_exchange(hl_collector, DB_PATH),
+            hl_callback=lambda: asyncio.sleep(0),  # no-op — no HL assets
             bn_callback=lambda: _bn_scan_with_strategy(),
         )
     except asyncio.CancelledError:

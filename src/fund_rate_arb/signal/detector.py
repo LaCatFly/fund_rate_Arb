@@ -101,7 +101,9 @@ def detect_signals(
         apy_net = apy_gross - cost
 
         if apy_net >= apy_threshold and spread.spread_bps <= max_spread_bps:
-            basis = _calc_basis(fr, spread)
+            # Get spot price if available (Binance Alpha API for equities)
+            spot = oi_map.get(f"spot:{oi_symbol}", 0) if oi_map else 0
+            basis = _calc_basis(fr, spread, spot_price=spot)
             sig = Signal(
                 exchange="BN" if fr.exchange == "binance" else "HL",
                 symbol=fr.symbol.removesuffix("USDT"),
@@ -217,8 +219,13 @@ def rank_signals(
     return signals
 
 
-def _calc_basis(fr: FundingRate, spread: SpreadData) -> float:
-    """Return basis as percentage: (mark - index) / index * 100."""
+def _calc_basis(fr: FundingRate, spread: SpreadData, spot_price: float = 0.0) -> float:
+    """Return basis as percentage.
+    If spot_price provided: (perp_mark - spot) / spot * 100 (real cross-leg basis).
+    Otherwise: (mark - index) / index * 100 (perp internal basis).
+    """
+    if spot_price > 0 and fr.mark_price > 0:
+        return (fr.mark_price - spot_price) / spot_price * 100
     if not (fr.mark_price and fr.index_price and fr.index_price > 0):
         return 0.0
     return (fr.mark_price - fr.index_price) / fr.index_price * 100

@@ -19,7 +19,7 @@ from fund_rate_arb.db import (
     query_funding_history,
     get_connection,
 )
-from fund_rate_arb.collectors import BinanceCollector, HyperliquidCollector
+from fund_rate_arb.collectors import BinanceCollector
 from fund_rate_arb.scoring import compute_quality_score
 from fund_rate_arb.cli.report import generate_report, display_table, save_report
 
@@ -60,7 +60,7 @@ def report(ctx: click.Context, min_apy: float, output: str, compact: bool) -> No
 @click.option(
     "--exchange",
     "-e",
-    type=click.Choice(["binance", "hyperliquid", "all"]),
+    type=click.Choice(["binance", "all"]),
     default="all",
     help="Exchange to fetch",
 )
@@ -71,10 +71,7 @@ def fetch(ctx: click.Context, exchange: str) -> None:
 
     async def _fetch():
         collectors = []
-        if exchange in ("binance", "all"):
-            collectors.append(BinanceCollector())
-        if exchange in ("hyperliquid", "all"):
-            collectors.append(HyperliquidCollector())
+        collectors.append(BinanceCollector())
 
         for collector in collectors:
             console.print(f"[blue]Fetching {collector.exchange_name} data...[/]")
@@ -184,72 +181,12 @@ def score(ctx: click.Context, top: int, exchange: str | None) -> None:
 )
 @click.pass_context
 def arb_opportunities(ctx: click.Context, min_spread: float) -> None:
-    """Show cross-exchange arbitrage opportunities."""
-    db_path = ctx.obj["db_path"]
+    """Show cross-exchange arbitrage opportunities.
 
-    binance_data = query_all_latest(db_path, exchange="binance")
-    hyperliquid_data = query_all_latest(db_path, exchange="hyperliquid")
-
-    # Index by symbol
-    binance_map = {r["symbol"]: r for r in binance_data}
-    hyperliquid_map = {r["symbol"]: r for r in hyperliquid_data}
-
-    # Find common symbols
-    common = set(binance_map.keys()) & set(hyperliquid_map.keys())
-
-    opportunities = []
-    for symbol in common:
-        b_rate = binance_map[symbol]["funding_rate"]
-        h_rate = hyperliquid_map[symbol]["funding_rate"]
-        # Convert Hyperliquid hourly rate to per-8h equivalent
-        h_rate_per_8h = h_rate * 8
-        differential = abs(b_rate - h_rate_per_8h)
-
-        if differential >= min_spread:
-            opportunities.append(
-                {
-                    "symbol": symbol,
-                    "binance_rate": b_rate,
-                    "hyperliquid_rate": h_rate,
-                    "hyperliquid_rate_per_8h": h_rate_per_8h,
-                    "differential": differential,
-                    "direction": "Binance→Hyperliquid"
-                    if b_rate > h_rate_per_8h
-                    else "Hyperliquid→Binance",
-                }
-            )
-
-    if not opportunities:
-        console.print(
-            "[yellow]No cross-exchange opportunities found above threshold.[/]"
-        )
-        return
-
-    # Sort by differential descending
-    opportunities.sort(key=lambda x: x["differential"], reverse=True)
-
-    table = Table(title="Cross-Exchange Arbitrage Opportunities")
-    table.add_column("Symbol")
-    table.add_column("Direction")
-    table.add_column("Binance/8h", justify="right")
-    table.add_column("Hyperliquid/8h", justify="right")
-    table.add_column("Diff/8h", justify="right")
-    table.add_column("Diff APY%", justify="right")
-
-    for opp in opportunities:
-        diff_apy = (
-            opp["differential"] * 1095 * 100
-        )  # annualized percentage (per-8h basis)
-        table.add_row(
-            opp["symbol"],
-            opp["direction"],
-            f"{opp['binance_rate'] * 100:.5f}%",
-            f"{opp['hyperliquid_rate_per_8h'] * 100:.5f}%",
-            f"{opp['differential'] * 100:.5f}%",
-            f"{diff_apy:.2f}%",
-        )
-
-    console.print(table)
+    Note: Only available for assets on both Binance and Hyperliquid.
+    Currently no equity perps exist on Hyperliquid.
+    """
+    console.print("[yellow]No cross-exchange equity perps available on Hyperliquid[/]")
 
 
 @cli.command()
@@ -294,12 +231,12 @@ def signals(
 
     async def _run():
         all_funding, all_spreads = [], []
-        for coll in [BinanceCollector(), HyperliquidCollector()]:
-            console.print(f"[blue]Fetching {coll.exchange_name}...[/]")
-            f, o, s = await coll.fetch_all()
-            all_funding.extend(f)
-            all_spreads.extend(s)
-            console.print(f"  [green]✓ {len(f)} rates, {len(s)} spreads[/]")
+        coll = BinanceCollector()
+        console.print(f"[blue]Fetching {coll.exchange_name}...[/]")
+        f, o, s = await coll.fetch_all()
+        all_funding.extend(f)
+        all_spreads.extend(s)
+        console.print(f"  [green]✓ {len(f)} rates, {len(s)} spreads[/]")
 
         from fund_rate_arb.signal.detector import detect_signals
 
@@ -378,6 +315,70 @@ def signals(
             console.print(f"[green]Saved to {output}[/]")
 
     asyncio.run(_run())
+
+
+@cli.command()
+@click.pass_context
+def positions(ctx: click.Context) -> None:
+    """Show spot holdings and perp positions."""
+    from fund_rate_arb.collectors import get_trading_collector
+    from fund_rate_arb.trading.engine import TradingEngine
+
+    db_path = ctx.obj["db_path"]
+    collector = get_trading_collector()
+    engine = TradingEngine(collector, db_path)
+    data = engine.all_positions()
+
+    account = data["account"]
+    console.print("[bold cyan]=== Account ===[/]")
+    console.print(f"  Equity:    [green]{account.total_account_balance:.2f}[/] USDT")
+    console.print(f"  Available: [green]{account.available_balance:.2f}[/] USDT")
+    console.print(f"  Type:      {account.account_type}")
+
+    # Spot holdings
+    spot = data["spot_holdings"]
+    console.print(f"\n[bold cyan]=== Spot Holdings ({len(spot)}) ===[/]")
+    if spot:
+        table = Table()
+        table.add_column("Asset")
+        table.add_column("Free", justify="right")
+        table.add_column("Locked", justify="right")
+        table.add_column("Total", justify="right")
+        for s in spot:
+            table.add_row(
+                s["asset"],
+                f"{s['free']:.8f}".rstrip("0").rstrip("."),
+                f"{s['locked']:.8f}".rstrip("0").rstrip("."),
+                f"{s['total']:.8f}".rstrip("0").rstrip("."),
+            )
+        console.print(table)
+    else:
+        console.print("  [dim]No spot holdings[/]")
+
+    # Perp positions
+    perps = data["perp_positions"]
+    console.print(f"\n[bold cyan]=== Perp Positions ({len(perps)}) ===[/]")
+    if perps:
+        table = Table()
+        table.add_column("Symbol")
+        table.add_column("Side")
+        table.add_column("Contracts", justify="right")
+        table.add_column("Entry", justify="right")
+        table.add_column("PnL", justify="right")
+        table.add_column("Leverage", justify="right")
+        for p in perps:
+            pnl_style = "green" if p["unrealized_pnl"] >= 0 else "red"
+            table.add_row(
+                p["symbol"],
+                p["side"].upper(),
+                f"{p['contracts']}",
+                f"{p['entry_price']:.4f}",
+                f"[{pnl_style}]{p['unrealized_pnl']:.4f}[/]",
+                str(p["leverage"]),
+            )
+        console.print(table)
+    else:
+        console.print("  [dim]No open perp positions[/]")
 
 
 @cli.command()

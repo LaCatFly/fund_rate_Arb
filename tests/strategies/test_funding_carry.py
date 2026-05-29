@@ -157,6 +157,10 @@ class TestOpenPairedPosition:
     async def test_opens_both_legs(self, strategy, btc_underlying, monkeypatch):
         """Both perp and spot legs are opened."""
         monkeypatch.setattr(strategy, "_get_mark_price", lambda sym, db: 50000.0)
+        monkeypatch.setattr(
+            "fund_rate_arb.data.alpha_prices.get_alpha_prices",
+            lambda db=None, force_refresh=False: {"BTCUSDT": 50000.0},
+        )
         pos = await strategy.open_paired_position(btc_underlying, "test.db")
         assert pos is not None
         assert strategy.perp_executor.open_position.called

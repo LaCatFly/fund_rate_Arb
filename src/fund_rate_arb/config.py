@@ -56,7 +56,6 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "binance_proxy": "http://127.0.0.1:7897",
         "binance_futures_base": "https://fapi.binance.com",
         "hyperliquid_api": "https://api.hyperliquid.xyz",
-        "hip3_prefix": "xyz:",
     },
     "strategies": [],
 }
@@ -173,7 +172,6 @@ WHITELIST_SYMBOLS = sorted({u.ticker for u in UNDERLYINGS if _is_tradable_sector
 BINANCE_FUTURES_BASE: str = _RAW["network"]["binance_futures_base"]
 BINANCE_SPOT_BASE: str = "https://api.binance.com"
 HYPERLIQUID_API: str = _RAW["network"]["hyperliquid_api"]
-HIP3_PREFIX: str = _RAW["network"]["hip3_prefix"]
 FUNDING_LOOKBACK_HOURS: int = _RAW["strategy"]["funding_lookback_hours"]
 
 # Scoring weights and fees

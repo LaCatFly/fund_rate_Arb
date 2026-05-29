@@ -7,7 +7,7 @@ import httpx
 from datetime import datetime, timezone
 
 from fund_rate_arb.collectors.base import BaseCollector
-from fund_rate_arb.config import HYPERLIQUID_API, WHITELIST_HYPERLIQUID, HIP3_PREFIX, FUNDING_LOOKBACK_HOURS
+from fund_rate_arb.config import HYPERLIQUID_API, WHITELIST_HYPERLIQUID, FUNDING_LOOKBACK_HOURS
 from fund_rate_arb.models.funding import FundingRate, OpenInterest, SpreadData
 
 
@@ -44,7 +44,7 @@ class HyperliquidCollector(BaseCollector):
         results = []
 
         for ticker in WHITELIST_HYPERLIQUID:
-            coin = f"{HIP3_PREFIX}{ticker}"
+            coin = ticker  # Regular perps (no HIP3 prefix needed)
             try:
                 data = await self._post_info({
                     "type": "fundingHistory",
@@ -90,9 +90,9 @@ class HyperliquidCollector(BaseCollector):
         for i, asset in enumerate(universe):
             name = asset.get("name", "")
             # Skip HIP-3 assets — they don't have OI in metaAndAssetCtxs
-            if name.startswith(HIP3_PREFIX):
+            if name.startswith("xyz:"):
                 continue
-            ticker = name[len(HIP3_PREFIX):] if name.startswith(HIP3_PREFIX) else name
+            ticker = name[4:] if name.startswith("xyz:") else name
             if ticker not in WHITELIST_HYPERLIQUID:
                 continue
             if i >= len(ctxs):
@@ -118,7 +118,7 @@ class HyperliquidCollector(BaseCollector):
 
     async def _fetch_spread_for_ticker(self, ticker: str, client: httpx.AsyncClient) -> SpreadData | None:
         """Fetch bid/ask spread for a single ticker via l2Book."""
-        coin = f"{HIP3_PREFIX}{ticker}"
+        coin = ticker  # Regular perps
         try:
             resp = await client.post(
                 "/info",

@@ -14,13 +14,6 @@
 #   No equity perps exist on Hyperliquid (230 assets, all crypto).
 # ---------------------------------------------------------------------------
 underlyings:
-  - ticker: BTC
-    name: Bitcoin
-    binance_f: BTCUSDT
-    hl_perp: BTC
-    hl_spot: null
-    sector: crypto_perp
-
   # Equities — Binance perp + Hyperliquid (verified: NO equity perps on HL)
   - ticker: TSLA
     name: Tesla
@@ -199,14 +192,6 @@ underlyings:
     hl_perp: null
     hl_spot: null
     sector: index
-
-  # Crypto reference (HL only, excluded from trading whitelists)
-  - ticker: SPX
-    name: SPX6900 memecoin
-    binance_f: null
-    hl_perp: SPX
-    hl_spot: null
-    sector: crypto_perp
 
 
 # ---------------------------------------------------------------------------

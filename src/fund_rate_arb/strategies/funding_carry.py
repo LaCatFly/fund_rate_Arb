@@ -161,6 +161,8 @@ class FundingCarry(BaseStrategy):
         db_path: str,
     ) -> CarryPosition | None:
         """Open SHORT perp + LONG spot simultaneously."""
+        from fund_rate_arb.data.alpha_prices import get_alpha_prices
+
         execution_id = str(uuid.uuid4())
         perp_symbol = underlying.binance_f
         spot_symbol = underlying.binance_spot
@@ -171,8 +173,12 @@ class FundingCarry(BaseStrategy):
             logger.warning("No mark price for %s, skipping", underlying.ticker)
             return None
 
-        # Get spot price from DB (use same mark as approximation)
-        spot_price = self._get_mark_price(spot_symbol, db_path) or mark_price
+        # Get real spot price from Alpha API
+        alpha = get_alpha_prices(db_path)
+        spot_price = alpha.get(spot_symbol, 0) if spot_symbol else 0
+        if spot_price <= 0:
+            logger.warning("No Alpha spot price for %s, skipping", spot_symbol)
+            return None
 
         contracts = self.notional_per_leg / mark_price
         spot_amount = self.notional_per_leg / spot_price
@@ -448,6 +454,13 @@ class FundingCarry(BaseStrategy):
             ).fetchall()
             oi_map = {r["symbol"].removesuffix("USDT"): r["open_interest"] for r in oi_raw}
 
+            # Enrich oi_map with spot prices for basis calculation
+            alpha_prices = get_alpha_prices(db_path)
+            for ticker, price in alpha_prices.items():
+                # Strip 'on' suffix for oi_map key (e.g. TSLAon → TSLA)
+                spot_key = ticker.removesuffix("on")
+                oi_map[f"spot:{spot_key}"] = price
+
             rates = []
             for row in data:
                 rates.append(
@@ -474,15 +487,14 @@ class FundingCarry(BaseStrategy):
                     )
                 )
 
-            # Detect signals with real spread + OI
+            # Detect signals with real spread + OI + spot basis
             signals = detect_signals(
                 rates, spreads, apy_threshold=self.min_apy,
                 min_oi_usd=self.min_oi_usd,
                 oi_map=oi_map,
             )
 
-            # Enrich with Alpha spot prices for equities
-            alpha_prices = get_alpha_prices(db_path)
+            # Set spot_price on signals for display
             for sig in signals:
                 spot_sym = sig.symbol + "on"
                 if spot_sym in alpha_prices:

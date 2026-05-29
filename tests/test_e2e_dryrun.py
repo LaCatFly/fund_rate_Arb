@@ -537,14 +537,22 @@ def test_full_strategy_cycle(tmp_path):
         ticker="TSM", name="TSMC",
         binance_f="TSMUSDT",
         hl_perp=None, hl_spot=None,
-        sector="crypto_perp",
+        sector="equity",  # equity → binance_spot = TSMon
     )
     config.UNDERLYINGS = [test_underlying]
     config._UNDERLYING_BY_TICKER = {u.ticker: u for u in config.UNDERLYINGS}
+    # Patch whitelists
+    config.WHITELIST_BINANCE = {"TSMUSDT"}
+    config.WHITELIST_BINANCE_SPOT = {"TSMon"}
 
     # Also patch the whitelist-derived lists that signal detection uses
     original_binance_f = config.BINANCE_FUTURES_BASE
     config.BINANCE_FUTURES_BASE = ["TSMUSDT"]
+
+    # Mock Alpha prices so open_paired_position has spot price
+    import fund_rate_arb.data.alpha_prices as alpha_mod
+    original_alpha = alpha_mod.get_alpha_prices
+    alpha_mod.get_alpha_prices = lambda db=None, force_refresh=False: {"TSMon": 500.0}
 
     try:
         import asyncio
@@ -564,3 +572,6 @@ def test_full_strategy_cycle(tmp_path):
         config.UNDERLYINGS = original
         config._UNDERLYING_BY_TICKER = {u.ticker: u for u in original}
         config.BINANCE_FUTURES_BASE = original_binance_f
+        config.WHITELIST_BINANCE = getattr(config, '_orig_binance', config.WHITELIST_BINANCE)
+        config.WHITELIST_BINANCE_SPOT = getattr(config, '_orig_spot', config.WHITELIST_BINANCE_SPOT)
+        alpha_mod.get_alpha_prices = original_alpha
