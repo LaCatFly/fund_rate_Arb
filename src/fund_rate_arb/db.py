@@ -254,12 +254,22 @@ def query_all_latest(
                        GROUP BY symbol
                    ) latest ON f.symbol = latest.symbol AND f.timestamp = latest.max_ts
                    LEFT JOIN (
-                       SELECT symbol, open_interest FROM oi_snapshots
-                       WHERE exchange = ? AND timestamp >= datetime('now', '-1 hours')
+                       SELECT oi1.symbol, oi1.open_interest
+                       FROM oi_snapshots oi1
+                       INNER JOIN (
+                           SELECT symbol, MAX(timestamp) as max_ts
+                           FROM oi_snapshots WHERE exchange = ?
+                           GROUP BY symbol
+                       ) oi2 ON oi1.symbol = oi2.symbol AND oi1.timestamp = oi2.max_ts
                    ) o ON f.symbol = o.symbol
                    LEFT JOIN (
-                       SELECT symbol, spread_bps FROM spread_data
-                       WHERE exchange = ? AND timestamp >= datetime('now', '-1 hours')
+                       SELECT sd1.symbol, sd1.spread_bps
+                       FROM spread_data sd1
+                       INNER JOIN (
+                           SELECT symbol, MAX(timestamp) as max_ts
+                           FROM spread_data WHERE exchange = ?
+                           GROUP BY symbol
+                       ) sd2 ON sd1.symbol = sd2.symbol AND sd1.timestamp = sd2.max_ts
                    ) s ON f.symbol = s.symbol
                    WHERE f.exchange = ?""",
                 (exchange, exchange, exchange, exchange),
