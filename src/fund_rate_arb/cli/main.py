@@ -597,7 +597,7 @@ def scan_strategy(
             from fund_rate_arb.strategies.funding_carry import FundingCarry
 
             collector = get_trading_collector()
-            executor = LiveExecutor(collector=collector, notional_per_leg=200.0)
+            executor = LiveExecutor(collector=collector, notional_per_leg=50.0)
             strategy = FundingCarry(
                 executor=executor,
                 exit_engine=ExitRuleEngine([

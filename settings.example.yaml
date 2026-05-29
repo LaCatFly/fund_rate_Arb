@@ -12,6 +12,14 @@
 # Spot symbols remain null if the exchange has no tokenized stock product.
 # ---------------------------------------------------------------------------
 underlyings:
+  - ticker: BTC
+    name: Bitcoin
+    binance_f: BTCUSDT
+    binance_s: null
+    hl_perp: BTC
+    hl_spot: null
+    sector: crypto
+
   - ticker: TSLA
     name: Tesla
     binance_f: TSLAUSDT
