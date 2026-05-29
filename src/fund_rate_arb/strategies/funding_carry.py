@@ -77,9 +77,8 @@ class FundingCarry(BaseStrategy):
     ) -> list[tuple[Signal, str]]:
         """Return list of (signal, side) pairs for paired legs."""
         existing_symbols = {p.symbol.replace("USDT", "").replace("/USDT:", "") for p in open_positions}
-        pairs_available = self.max_positions // 2
         existing_shorts = len([p for p in open_positions if p.side == "SHORT"])
-        pairs_available = min(pairs_available, self.max_positions // 2 - existing_shorts)
+        pairs_available = min(self.max_positions // 2, self.max_positions // 2 - existing_shorts)
         if pairs_available <= 0:
             return []
 
@@ -89,24 +88,32 @@ class FundingCarry(BaseStrategy):
         candidates.sort(key=lambda s: s.apy_net, reverse=True)
 
         legs = []
-        used_hedges = set()
-        for sig in candidates[:pairs_available]:
+        used_symbols = set(existing_symbols)
+        for sig in candidates:
+            if len(legs) >= pairs_available * 2:
+                break
             sym = sig.symbol
+            if sym in used_symbols:
+                continue
+
             # SHORT leg: high funding
             legs.append((sig, "SHORT"))
+            used_symbols.add(sym)
 
             # LONG leg: lowest APY candidate not already used
             hedge_candidates = [
                 s for s in signals
                 if s.symbol != sym
-                and s.symbol not in existing_symbols
-                and s.symbol not in used_hedges
+                and s.symbol not in used_symbols
             ]
             if hedge_candidates:
                 hedge = min(hedge_candidates, key=lambda s: s.apy_net)
                 legs.append((hedge, "LONG"))
-                used_hedges.add(hedge.symbol)
-            existing_symbols.add(sym)
+                used_symbols.add(hedge.symbol)
+
+        # Ensure even number of legs (pairs only)
+        if len(legs) % 2 != 0:
+            legs = legs[:-1]
 
         return legs
 
