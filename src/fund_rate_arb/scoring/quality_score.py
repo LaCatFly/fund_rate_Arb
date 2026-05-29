@@ -85,13 +85,15 @@ def compute_quality_score(
     mean_funding = persist.mean
     est_apy = annualized_funding_apy(mean_funding)
 
-    # Break-even calculation
+    # Break-even: entry = maker + taker + slippage + spread (one way)
+    # round-trip = entry * 2, daily income = mean_funding * 3
+    daily_income = mean_funding * 3
     fee_breakdown = compute_fees(
         maker_fee=f["binance_maker"],
         taker_fee=f["binance_taker"],
         slippage=f["slippage"],
         spread_cost=f["spread_cost"],
-        net_funding_per_day=mean_funding * 3,  # 3 intervals per day
+        net_funding_per_day=daily_income,
     )
 
     return FundingScore(

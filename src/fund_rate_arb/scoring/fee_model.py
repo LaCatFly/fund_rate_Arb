@@ -25,19 +25,11 @@ def compute_fees(
 ) -> FeeBreakdown:
     """Compute round-trip fees and break-even holding period.
 
-    Args:
-        maker_fee: Maker fee rate (0.02% = 0.0002)
-        taker_fee: Taker fee rate (0.05% = 0.0005)
-        slippage: Estimated slippage on entry+exit
-        spread_cost: Bid-ask spread cost
-        net_funding_per_day: Expected daily net funding income
-
-    Returns:
-        FeeBreakdown with total costs and break-even days.
+    Entry cost = maker_fee + taker_fee + slippage + spread_cost
+    Exit cost = same structure
+    Round-trip = entry + exit
     """
-    # Entry: maker on one leg, possibly taker on other
-    entry_cost = (maker_fee + taker_fee) / 2 + slippage + spread_cost / 2
-    # Exit: same structure
+    entry_cost = maker_fee + taker_fee + slippage + spread_cost
     exit_cost = entry_cost
     total_round_trip = entry_cost + exit_cost
 

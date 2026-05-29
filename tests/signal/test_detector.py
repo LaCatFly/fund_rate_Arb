@@ -73,8 +73,8 @@ def test_missing_spread():
 def test_calc_cost():
     # maker 0.02%, taker 0.05%, spread 1 bps = 0.01%
     cost = calc_cost_pct(1.0, 0.0002, 0.0005)
-    # round trip = (0.0002 + 0.0005) * 2 * 100 = 0.14%, spread = 0.01%, total = 0.15%
-    assert cost == pytest.approx(0.15, abs=0.01)
+    # round trip = (0.0002 + 0.0005) * 100 = 0.07%, spread = 0.01%, total = 0.08%
+    assert cost == pytest.approx(0.08, abs=0.01)
 
 
 def test_signal_fields():

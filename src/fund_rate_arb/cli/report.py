@@ -3,12 +3,20 @@
 from __future__ import annotations
 
 import sqlite3
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 import click
 from rich.console import Console
 from rich.table import Table
+
+from fund_rate_arb.models.funding import FundingRate, SpreadData
+from fund_rate_arb.scoring.fee_model import annualized_funding_apy
+from fund_rate_arb.signal.detector import (
+    BINANCE_MAKER, BINANCE_TAKER, HL_MAKER, HL_TAKER,
+    Signal, _calc_basis, calc_cost_pct, rank_signals,
+)
 
 console = Console()
 
@@ -18,10 +26,11 @@ def generate_report(
     min_apy: float = 10.0,
     output: str | None = None,
 ) -> list[dict]:
-    """Generate report of symbols with positive funding above min_apy."""
+    """Generate report with unified scoring, basis, OI USD."""
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
 
+    # Latest funding rates per symbol/exchange
     rows = conn.execute('''
         SELECT f.* FROM funding_rates f
         INNER JOIN (
@@ -33,111 +42,214 @@ def generate_report(
         ORDER BY f.funding_rate DESC
     ''').fetchall()
 
-    oi_rows = conn.execute('SELECT * FROM oi_snapshots').fetchall()
-    spread_rows = conn.execute('SELECT * FROM spread_data').fetchall()
+    oi_rows = conn.execute('''
+        SELECT symbol, exchange, open_interest FROM oi_snapshots
+        WHERE timestamp = (SELECT MAX(timestamp) FROM oi_snapshots)
+    ''').fetchall()
+    spread_rows = conn.execute('''
+        SELECT symbol, exchange, spread_bps, bid, ask FROM spread_data
+        WHERE timestamp = (SELECT MAX(timestamp) FROM spread_data)
+    ''').fetchall()
+
+    # 72h history for each symbol
+    cutoff = int(time.time() - 72 * 3600)
+    cutoff_iso = datetime.fromtimestamp(cutoff, timezone.utc).isoformat()
+
     conn.close()
 
-    oi_map = {(r['symbol'], r['exchange']): r['open_interest'] for r in oi_rows}
-    spread_map = {(r['symbol'], r['exchange']): r['spread_bps'] for r in spread_rows}
-    mark_map = {(r['symbol'], r['exchange']): r['mark_price'] for r in spread_rows
-                if r['mark_price']}
+    oi_map = {(r["symbol"], r["exchange"]): r["open_interest"] for r in oi_rows}
 
-    results = []
+    # Build FundingRate + SpreadData objects for signal pipeline
+    rates = []
     for r in rows:
-        fr = r['funding_rate']
-        # Hyperliquid: hourly rates → * 8760 (24h * 365)
-        # Binance: per-8h rates → * 1095 (3 * 365)
-        multiplier = 8760 if r['exchange'] == 'hyperliquid' else 1095
-        apy = fr * multiplier * 100
-        if apy < min_apy:
+        rates.append(FundingRate(
+            symbol=r["symbol"], exchange=r["exchange"],
+            timestamp=datetime.now(timezone.utc),
+            funding_rate=r["funding_rate"],
+            mark_price=r["mark_price"] or 0,
+            index_price=r["index_price"] or 0,
+        ))
+
+    spreads = []
+    for r in spread_rows:
+        spreads.append(SpreadData(
+            symbol=r["symbol"], exchange=r["exchange"],
+            timestamp=datetime.now(timezone.utc),
+            bid=r["bid"] or 0, ask=r["ask"] or 0,
+            spread_bps=r["spread_bps"] or 0,
+        ))
+
+    # Convert OI contracts to USD using mark price
+    oi_usd_map = {}
+    for (sym, ex), contracts in oi_map.items():
+        fr = next((f for f in rates if f.symbol == sym and f.exchange == ex), None)
+        if fr:
+            oi_usd_map[sym] = contracts * (fr.mark_price or 0)
+
+    # Detect signals with OI filter
+    signals = []
+    for fr in rates:
+        spread = next((s for s in spreads if s.exchange == fr.exchange and s.symbol == fr.symbol), None)
+        if not spread:
             continue
 
-        sym = r['symbol']
-        ex = r['exchange']
-        oi = oi_map.get((sym, ex), None)
-        sp = spread_map.get((sym, ex), None)
-        mk = mark_map.get((sym, ex), None) or r['mark_price']
+        oi_contracts = oi_map.get((fr.symbol, fr.exchange), 0) or 0
+        oi_value = oi_contracts * (fr.mark_price or 0)
+
+        maker = BINANCE_MAKER if fr.exchange == "binance" else HL_MAKER
+        taker = BINANCE_TAKER if fr.exchange == "binance" else HL_TAKER
+        interval_h = 8 if fr.exchange == "binance" else 1
+        intervals_per_year = 365 * 3 if fr.exchange == "binance" else 365 * 24
+
+        apy_gross_decimal = annualized_funding_apy(fr.funding_rate, intervals_per_year=intervals_per_year)
+        apy_gross = apy_gross_decimal * 100
+        cost = calc_cost_pct(spread.spread_bps, maker, taker)
+        apy_net = apy_gross - cost
+
+        if apy_net >= min_apy and spread.spread_bps <= 10.0:
+            basis = _calc_basis(fr, spread)
+            sig = Signal(
+                exchange="BN" if fr.exchange == "binance" else "HL",
+                symbol=fr.symbol.removesuffix("USDT"),
+                apy_net=round(apy_net, 2),
+                apy_gross=round(apy_gross, 2),
+                cost=round(cost, 2),
+                basis_pct=round(basis, 4),
+                spread_bps=round(spread.spread_bps, 1),
+                interval_h=interval_h,
+                oi_usd=oi_value,
+            )
+            signals.append(sig)
+
+    # Enrich with 72h history
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    history_map = {}
+    oi_history_map = {}
+    for sig in signals:
+        sym_usdt = sig.symbol + "USDT"
+        ex_filter = "binance" if sig.exchange == "BN" else "hyperliquid"
+        f_rows = conn.execute(
+            "SELECT funding_rate FROM funding_rates "
+            "WHERE symbol = ? AND exchange = ? AND timestamp >= ? ORDER BY timestamp ASC",
+            (sym_usdt, ex_filter, cutoff_iso),
+        ).fetchall()
+        if f_rows:
+            history_map[(sig.exchange, sig.symbol)] = [r[0] for r in f_rows]
+        oi_rows_hist = conn.execute(
+            "SELECT open_interest FROM oi_snapshots "
+            "WHERE symbol = ? AND exchange = ? AND timestamp >= ? ORDER BY timestamp ASC",
+            (sym_usdt, ex_filter, cutoff_iso),
+        ).fetchall()
+        if oi_rows_hist:
+            oi_history_map[sig.symbol] = [r[0] for r in oi_rows_hist]
+    conn.close()
+
+    ranked = rank_signals(signals, history_map, oi_map=oi_history_map)
+    ranked.sort(key=lambda s: s.unified_score, reverse=True)
+
+    results = []
+    for s in ranked:
+        sym_usdt = s.symbol + "USDT"
+        ex_full = "binance" if s.exchange == "BN" else "hyperliquid"
+        mark_row = next((f for f in rates if f.symbol == sym_usdt and f.exchange == ex_full), None)
+        mark_price = mark_row.mark_price if mark_row else 0
+        index_price = mark_row.index_price if mark_row else 0
 
         results.append({
-            'symbol': sym,
-            'exchange': ex,
-            'funding_rate': fr,
-            'apy': apy,
-            'oi': float(oi) if oi else None,
-            'spread_bps': float(sp) if sp else None,
-            'mark_price': mk,
+            "symbol": s.symbol,
+            "exchange": ex_full,
+            "exchange_short": s.exchange,
+            "apy_net": s.apy_net,
+            "apy_gross": s.apy_gross,
+            "cost": s.cost,
+            "basis_pct": s.basis_pct,
+            "spread_bps": s.spread_bps,
+            "quality_score": s.quality_score,
+            "unified_score": s.unified_score,
+            "score_weekly": s.score_weekly,
+            "positive_ratio": s.positive_ratio_72h,
+            "avg_rate_72h": s.avg_rate_72h,
+            "oi_usd": s.oi_usd,
+            "interval_h": s.interval_h,
+            "mark_price": mark_price,
+            "index_price": index_price,
         })
 
     return results
 
 
 def display_table(results: list[dict]) -> None:
-    """Display results as a rich table."""
-    table = Table(title=f"Candidates: APY > 10% ({len(results)} found)")
+    """Display results as a rich table with unified scoring."""
+    table = Table(title=f"Candidates: APY Net > {results[0]['apy_net'] if results else 10:.0f}% ({len(results)} found)")
     table.add_column("#")
     table.add_column("Symbol")
-    table.add_column("Exchange")
-    table.add_column("Funding/8h", justify="right")
-    table.add_column("APY%", justify="right")
-    table.add_column("OI", justify="right")
-    table.add_column("Spread(bps)", justify="right")
-    table.add_column("Mark", justify="right")
+    table.add_column("Ex")
+    table.add_column("APY Net%", justify="right")
+    table.add_column("Basis%", justify="right")
+    table.add_column("Spread", justify="right")
+    table.add_column("OI USD", justify="right")
+    table.add_column("Q Score", justify="right")
+    table.add_column("Pos%", justify="right")
+    table.add_column("Unified", justify="right")
 
     for i, r in enumerate(results, 1):
-        oi_str = f"{r['oi']:,.0f}" if r['oi'] else "N/A"
-        sp_str = f"{r['spread_bps']:.2f}" if r['spread_bps'] else "N/A"
-        mark = f"{r['mark_price']:.2f}" if r['mark_price'] else "N/A"
+        oi_str = f"${r['oi_usd']/1e6:.1f}M" if r["oi_usd"] >= 1e6 else f"${r['oi_usd']/1e3:.0f}K" if r["oi_usd"] else "N/A"
         table.add_row(
-            str(i), r['symbol'], r['exchange'],
-            f"{r['funding_rate']*100:.5f}%",
-            f"{r['apy']:.1f}%",
-            oi_str, sp_str, mark,
+            str(i), r["symbol"], r["exchange_short"],
+            f"{r['apy_net']:.1f}%",
+            f"{r['basis_pct']:+.4f}%",
+            f"{r['spread_bps']:.1f}bp",
+            oi_str,
+            f"{r['quality_score']:.3f}",
+            f"{r['positive_ratio']*100:.0f}%",
+            f"{r['unified_score']:.2f}",
         )
 
     console.print(table)
 
 
 def save_report(results: list[dict], path: str, compact: bool = False) -> None:
-    """Save report in Telegram-friendly format (no markdown tables)."""
+    """Save report in Telegram-friendly format."""
     ts = datetime.now(timezone.utc)
-    timestamp = ts.strftime('%Y-%m-%d %H:%M UTC')
-    time_short = ts.strftime('%H:%M UTC')
+    timestamp = ts.strftime("%Y-%m-%d %H:%M UTC")
+    time_short = ts.strftime("%H:%M UTC")
 
     if compact:
-        exchange_short = {"binance": "BN", "hyperliquid": "HL"}
         lines = [
-            f"📊 Funding — {time_short} | APY > 10%",
+            f"📊 Funding — {time_short} | APY Net > {results[0]['apy_net'] if results else 10:.0f}%",
             "",
         ]
         for i, r in enumerate(results, 1):
-            ex = exchange_short.get(r['exchange'], r['exchange'])
-            sp = f" {r['spread_bps']:.1f}bps" if r['spread_bps'] else ""
-            oi = f" OI {r['oi']/1000:.0f}K" if r['oi'] else ""
-            mark = f" ${r['mark_price']:.0f}" if r['mark_price'] else ""
+            oi_str = f" OI ${r['oi_usd']/1e6:.1f}M" if r["oi_usd"] >= 1e6 else ""
             lines.append(
-                f"**{r['symbol']}** @ {ex} — **{r['apy']:.1f}%** | "
-                f"{r['funding_rate']*100:.4f}%{oi}{sp}{mark}"
+                f"**{i}. {r['symbol']}** @{r['exchange_short']} — "
+                f"**{r['apy_net']:.1f}%** | Basis {r['basis_pct']:+.3f}% | "
+                f"Q {r['quality_score']:.3f} | Unified {r['unified_score']:.2f}{oi_str}"
             )
         lines.extend(["", f"_{len(results)} candidates_"])
     else:
         lines = [
             f"📊 Funding Rate Report — {timestamp}",
             "",
-            "Criteria: Positive funding, APY > 10%",
+            "Criteria: Positive funding, APY Net > threshold (after fees)",
             "",
         ]
         for i, r in enumerate(results, 1):
-            oi_str = f"{r['oi']:,.0f}" if r['oi'] else "N/A"
-            sp_str = f"{r['spread_bps']:.2f} bps" if r['spread_bps'] else "N/A"
-            mark = f"${r['mark_price']:.2f}" if r['mark_price'] else "N/A"
-            funding_pct = f"{r['funding_rate']*100:.5f}%"
-
+            oi_str = f"${r['oi_usd']:,.0f}" if r["oi_usd"] else "N/A"
             lines.append(
-                f"{i}. **{r['symbol']}** @ {r['exchange']} — **{r['apy']:.1f}% APY**"
+                f"{i}. **{r['symbol']}** @ {r['exchange_short']} — "
+                f"**{r['apy_net']:.1f}% APY Net** (gross {r['apy_gross']:.1f}%, cost {r['cost']:.2f}%)"
             )
             lines.append(
-                f"   Funding/8h: {funding_pct}  |  OI: {oi_str}  |  "
-                f"Spread: {sp_str}  |  Mark: {mark}"
+                f"   Basis: {r['basis_pct']:+.4f}%  |  Spread: {r['spread_bps']:.1f}bps  |  "
+                f"OI: {oi_str}  |  Mark: ${r['mark_price']:.2f}"
+            )
+            lines.append(
+                f"   Q Score: {r['quality_score']:.4f}  |  "
+                f"Positive 72h: {r['positive_ratio']*100:.0f}%  |  "
+                f"Unified: {r['unified_score']:.2f}  |  "
+                f"Funding/interval: {r['avg_rate_72h']*100:.5f}%"
             )
             lines.append("")
 
@@ -155,14 +267,14 @@ def save_report(results: list[dict], path: str, compact: bool = False) -> None:
 
 @click.command()
 @click.option("--db", default="fund_rate_arb.db", help="SQLite database path")
-@click.option("--min-apy", default=10.0, help="Minimum APY% threshold")
+@click.option("--min-apy", default=10.0, help="Minimum APY net % threshold")
 @click.option("--output", "-o", default="reports/funding-report-latest.md", help="Output path")
 @click.option("--compact/--full", default=False, help="Compact single-line format")
 def cli(db: str, min_apy: float, output: str, compact: bool) -> None:
-    """Generate funding rate report for symbols with positive funding above threshold."""
+    """Generate funding rate report with unified scoring."""
     results = generate_report(db, min_apy, output)
     if not results:
-        console.print(f"[yellow]No candidates with APY > {min_apy}%[/]")
+        console.print(f"[yellow]No candidates with APY net > {min_apy}%[/]")
         return
     display_table(results)
     save_report(results, output, compact=compact)
