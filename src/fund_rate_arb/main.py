@@ -9,6 +9,7 @@ import signal as sig
 
 from fund_rate_arb.collectors.binance import BinanceCollector
 from fund_rate_arb.collectors.hyperliquid import HyperliquidCollector
+from fund_rate_arb.config import get_strategy_specs
 from fund_rate_arb.db import (
     init_db,
     insert_funding_rates,
@@ -75,30 +76,15 @@ async def scan_exchange(collector, db_path: str) -> None:
 
 async def run_strategy_tick(db_path: str) -> None:
     """Run FundingCarry strategy: select, execute, monitor, exit."""
-    from fund_rate_arb.execution.paper import PaperExecutor
-    from fund_rate_arb.risk.exit_engine import (
-        APYThresholdRule,
-        ExitRuleEngine,
-        FundingFlipRule,
-        MaxLossRule,
-        TimeBasedRule,
-    )
-    from fund_rate_arb.strategies.funding_carry import FundingCarry
+    from fund_rate_arb.strategies.config import build_funding_carry
 
-    strategy = FundingCarry(
-        perp_executor=PaperExecutor(notional_per_leg=200.0),
-        spot_executor=PaperExecutor(notional_per_leg=200.0),
-        exit_engine=ExitRuleEngine(
-            [
-                TimeBasedRule(max_hold_hours=168),
-                FundingFlipRule(consecutive_neg=3),
-                APYThresholdRule(min_apy=10.0),
-                MaxLossRule(max_loss_pct=5.0),
-            ]
-        ),
-        max_positions=5,
-        min_apy=APY_THRESHOLD,
-    )
+    specs = get_strategy_specs()
+    spec = next((s for s in specs if s.name == "funding_carry" and s.enabled), None)
+    if spec is None:
+        logger.warning("No enabled funding_carry strategy in settings.yaml")
+        return
+
+    strategy = build_funding_carry(spec, paper=True, db_path=db_path)
 
     result = await strategy.tick(db_path)
     if result.positions_opened or result.positions_closed:

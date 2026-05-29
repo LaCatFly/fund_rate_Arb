@@ -9,13 +9,12 @@
 # ---------------------------------------------------------------------------
 # Underlyings & cross-exchange mapping
 # Each entry maps one asset to its symbol on every venue.
-# Spot symbols remain null if the exchange has no tokenized stock product.
+# Spot symbols are auto-derived: equity→{ticker}on (Convert API), crypto→{ticker}USDT
 # ---------------------------------------------------------------------------
 underlyings:
   - ticker: BTC
     name: Bitcoin
     binance_f: BTCUSDT
-    binance_s: BTCUSDT
     hl_perp: BTC
     hl_spot: BTC
     sector: crypto_perp
@@ -23,7 +22,6 @@ underlyings:
   - ticker: TSLA
     name: Tesla
     binance_f: TSLAUSDT
-    binance_s: null
     hl_perp: TSLA
     hl_spot: null
     sector: equity
@@ -31,7 +29,6 @@ underlyings:
   - ticker: NVDA
     name: NVIDIA
     binance_f: NVDAUSDT
-    binance_s: null
     hl_perp: NVDA
     hl_spot: null
     sector: equity
@@ -39,7 +36,6 @@ underlyings:
   - ticker: AAPL
     name: Apple
     binance_f: AAPLUSDT
-    binance_s: null
     hl_perp: AAPL
     hl_spot: null
     sector: equity
@@ -47,7 +43,6 @@ underlyings:
   - ticker: MSFT
     name: Microsoft
     binance_f: MSFTUSDT
-    binance_s: null
     hl_perp: MSFT
     hl_spot: null
     sector: equity
@@ -55,7 +50,6 @@ underlyings:
   - ticker: AMZN
     name: Amazon
     binance_f: AMZNUSDT
-    binance_s: null
     hl_perp: AMZN
     hl_spot: null
     sector: equity
@@ -63,7 +57,6 @@ underlyings:
   - ticker: META
     name: Meta Platforms
     binance_f: METAUSDT
-    binance_s: null
     hl_perp: META
     hl_spot: null
     sector: equity
@@ -71,7 +64,6 @@ underlyings:
   - ticker: GOOGL
     name: Alphabet
     binance_f: GOOGLUSDT
-    binance_s: null
     hl_perp: GOOGL
     hl_spot: null
     sector: equity
@@ -79,7 +71,6 @@ underlyings:
   - ticker: PLTR
     name: Palantir
     binance_f: PLTRUSDT
-    binance_s: null
     hl_perp: PLTR
     hl_spot: null
     sector: equity
@@ -87,7 +78,6 @@ underlyings:
   - ticker: MSTR
     name: MicroStrategy
     binance_f: MSTRUSDT
-    binance_s: null
     hl_perp: MSTR
     hl_spot: null
     sector: equity
@@ -95,7 +85,6 @@ underlyings:
   - ticker: COIN
     name: Coinbase
     binance_f: COINUSDT
-    binance_s: null
     hl_perp: COIN
     hl_spot: null
     sector: equity
@@ -103,7 +92,6 @@ underlyings:
   - ticker: AMD
     name: AMD
     binance_f: AMDUSDT
-    binance_s: null
     hl_perp: AMD
     hl_spot: null
     sector: equity
@@ -111,7 +99,6 @@ underlyings:
   - ticker: HOOD
     name: Robinhood
     binance_f: HOODUSDT
-    binance_s: null
     hl_perp: HOOD
     hl_spot: null
     sector: equity
@@ -119,7 +106,6 @@ underlyings:
   - ticker: ORCL
     name: Oracle
     binance_f: ORCLUSDT
-    binance_s: null
     hl_perp: ORCL
     hl_spot: null
     sector: equity
@@ -127,7 +113,6 @@ underlyings:
   - ticker: INTC
     name: Intel
     binance_f: INTCUSDT
-    binance_s: null
     hl_perp: INTC
     hl_spot: null
     sector: equity
@@ -135,7 +120,6 @@ underlyings:
   - ticker: NFLX
     name: Netflix
     binance_f: null
-    binance_s: null
     hl_perp: NFLX
     hl_spot: null
     sector: equity
@@ -143,7 +127,6 @@ underlyings:
   - ticker: BABA
     name: Alibaba
     binance_f: BABAUSDT
-    binance_s: null
     hl_perp: BABA
     hl_spot: null
     sector: equity
@@ -151,7 +134,6 @@ underlyings:
   - ticker: MU
     name: Micron
     binance_f: MUUSDT
-    binance_s: null
     hl_perp: MU
     hl_spot: null
     sector: equity
@@ -159,7 +141,6 @@ underlyings:
   - ticker: CRCL
     name: Circle
     binance_f: CRCLUSDT
-    binance_s: null
     hl_perp: CRCL
     hl_spot: null
     sector: equity
@@ -168,7 +149,6 @@ underlyings:
   - ticker: JPM
     name: JPMorgan
     binance_f: JPMUSDT
-    binance_s: null
     hl_perp: null
     hl_spot: null
     sector: equity
@@ -176,7 +156,6 @@ underlyings:
   - ticker: TSM
     name: TSMC
     binance_f: TSMUSDT
-    binance_s: null
     hl_perp: null
     hl_spot: null
     sector: equity
@@ -184,7 +163,6 @@ underlyings:
   - ticker: ARM
     name: Arm Holdings
     binance_f: ARMUSDT
-    binance_s: null
     hl_perp: null
     hl_spot: null
     sector: equity
@@ -192,7 +170,6 @@ underlyings:
   - ticker: QCOM
     name: Qualcomm
     binance_f: QCOMUSDT
-    binance_s: null
     hl_perp: null
     hl_spot: null
     sector: equity
@@ -201,7 +178,6 @@ underlyings:
   - ticker: SPCX
     name: S&P 500 (CME)
     binance_f: null
-    binance_s: null
     hl_perp: SPCX
     hl_spot: null
     sector: index
@@ -209,7 +185,6 @@ underlyings:
   - ticker: SP500
     name: S&P 500
     binance_f: null
-    binance_s: null
     hl_perp: SP500
     hl_spot: null
     sector: index
@@ -217,7 +192,6 @@ underlyings:
   - ticker: XYZ100
     name: XYZ 100
     binance_f: null
-    binance_s: null
     hl_perp: XYZ100
     hl_spot: null
     sector: index
@@ -226,7 +200,6 @@ underlyings:
   - ticker: SPX
     name: SPX6900 memecoin
     binance_f: null
-    binance_s: null
     hl_perp: SPX
     hl_spot: SPX
     sector: crypto
@@ -282,3 +255,43 @@ network:
   hyperliquid_api: "https://api.hyperliquid.xyz"
   # Hip-3 namespace prefix for equity perps on Hyperliquid
   hip3_prefix: "xyz:"
+
+
+# ---------------------------------------------------------------------------
+# Strategies — per-strategy execution, selection, and exit rules
+# Each entry is a StrategySpec loaded by get_strategy_specs()
+# ---------------------------------------------------------------------------
+strategies:
+  - name: funding_carry
+    enabled: true
+    polling_interval_s: 3600
+    weights:
+      funding_mean: 0.30
+      persistence: 0.25
+      volatility: -0.15
+      oi_stability: 0.15
+      spread_cost: -0.10
+      slippage: -0.05
+    execution:
+      notional_per_leg: 200.0
+      max_retries: 5
+      retry_delay_s: 2.0
+      leverage: 1
+    selection:
+      top_fraction: 0.10
+      max_concurrent_positions: 5
+      min_apy_threshold: 15.0
+      min_oi_usd: 5_000_000
+    exit_rules:
+      - type: time_based
+        params:
+          max_hold_hours: 168
+      - type: funding_flip
+        params:
+          consecutive_neg: 3
+      - type: apy_threshold
+        params:
+          min_apy: 10.0
+      - type: max_loss
+        params:
+          max_loss_pct: 5.0

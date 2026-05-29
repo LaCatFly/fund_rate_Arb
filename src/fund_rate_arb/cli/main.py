@@ -570,54 +570,60 @@ def scan(db_path: str) -> None:
     "--db", "db_path", default="fund_rate_arb.db", help="SQLite database path"
 )
 @click.option("--paper/--live", default=True, help="Paper or live execution")
-@click.option("--max-positions", default=5, help="Max concurrent positions")
-@click.option("--min-apy", default=15.0, help="Minimum APY threshold")
+@click.option("--notional", type=float, default=None, help="Override notional per leg from YAML")
+@click.option("--loop", is_flag=True, help="Run continuously instead of single tick")
+@click.option("--interval", type=int, default=None, help="Override polling interval (seconds)")
 @click.pass_context
-def scan_strategy(
-    ctx: click.Context, db_path: str, paper: bool, max_positions: int, min_apy: float
-) -> None:
-    """Run funding carry strategy loop (single tick for testing)."""
-    from fund_rate_arb.db import init_db, migrate_db
+def scan_strategy(ctx: click.Context, db_path: str, paper: bool, notional: float | None, loop: bool, interval: int | None) -> None:
+    """Run funding carry strategy. Config from settings.yaml."""
+    from fund_rate_arb.config import get_strategy_specs
+    from fund_rate_arb.strategies.config import build_funding_carry
 
     init_db(db_path)
-    migrate_db(db_path)
+
+    specs = get_strategy_specs()
+    spec = next((s for s in specs if s.name == "funding_carry" and s.enabled), None)
+    if spec is None:
+        console.print("[red]No enabled funding_carry strategy in settings.yaml[/]")
+        return
+
+    # CLI overrides
+    if notional is not None:
+        spec.execution.notional_per_leg = notional
+    poll_interval = interval or spec.polling_interval_s
+
+    mode = "loop" if loop else "single"
+    console.print(
+        f"[blue]Running {spec.name} ({'paper' if paper else 'LIVE'}), "
+        f"notional=${spec.execution.notional_per_leg:.0f}/leg, "
+        f"mode={mode}, interval={poll_interval}s[/]"
+    )
+
+    async def _tick():
+        strategy = build_funding_carry(spec, paper=paper, db_path=db_path)
+        result = await strategy.tick(db_path)
+        console.print(
+            f"  +{result.positions_opened} opened, -{result.positions_closed} closed, "
+            f"{result.signals_generated} signals"
+        )
+        for err in result.errors:
+            console.print(f"  [red]Error: {err}[/]")
 
     async def _run():
-        if paper:
-            from fund_rate_arb.main import run_strategy_tick
-
-            console.print("[blue]Running strategy tick (paper)...[/]")
-            await run_strategy_tick(db_path)
+        if loop:
+            import signal as sig
+            stop = False
+            def _handle(signum, frame):
+                nonlocal stop
+                stop = True
+            for s in (sig.SIGINT, sig.SIGTERM):
+                signal.signal(s, _handle)
+            while not stop:
+                await _tick()
+                console.print(f"[dim]Sleeping {poll_interval}s...[/]")
+                await asyncio.sleep(poll_interval)
         else:
-            from fund_rate_arb.collectors import get_trading_collector
-            from fund_rate_arb.collectors.binance_spot import BinanceSpotCollector
-            from fund_rate_arb.execution.live import LiveExecutor
-            from fund_rate_arb.risk.exit_engine import (
-                APYThresholdRule, FundingFlipRule, TimeBasedRule, ExitRuleEngine,
-            )
-            from fund_rate_arb.strategies.funding_carry import FundingCarry
-
-            perp_collector = get_trading_collector()
-            spot_collector = BinanceSpotCollector()
-            perp_executor = LiveExecutor(collector=perp_collector, notional_per_leg=75.0)
-            spot_executor = LiveExecutor(collector=spot_collector, notional_per_leg=75.0)
-            strategy = FundingCarry(
-                perp_executor=perp_executor,
-                spot_executor=spot_executor,
-                exit_engine=ExitRuleEngine([
-                    TimeBasedRule(max_hold_hours=168),
-                    FundingFlipRule(consecutive_neg=3),
-                    APYThresholdRule(min_apy=10.0),
-                ]),
-                max_positions=max_positions,
-                min_apy=min_apy,
-                notional_per_leg=75.0,
-            )
-            console.print("[yellow]Running strategy tick (LIVE)...[/]")
-            result = await strategy.tick(db_path)
-            console.print(f"  +{result.positions_opened} opened, -{result.positions_closed} closed")
-            for err in result.errors:
-                console.print(f"  [red]Error: {err}[/]")
-        console.print("[green]Strategy tick complete[/]")
+            await _tick()
+            console.print("[green]Strategy tick complete[/]")
 
     asyncio.run(_run())

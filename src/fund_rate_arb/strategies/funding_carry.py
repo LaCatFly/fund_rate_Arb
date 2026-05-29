@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import logging
+import sqlite3
+import time
 import uuid
 from datetime import datetime, timezone
 
-from fund_rate_arb.config import UNDERLYINGS, Underlying
+from fund_rate_arb.config import Underlying
 from fund_rate_arb.data.monitors import (
     compute_basis_drift,
     detect_funding_regime_shift,
@@ -38,6 +40,7 @@ class FundingCarry(BaseStrategy):
         db_path: str = "fund_rate_arb.db",
         notional_per_leg: float = 200.0,
         allocator=None,
+        min_oi_usd: float = 5_000_000,
     ):
         from fund_rate_arb.execution.allocator import Allocator
 
@@ -53,6 +56,7 @@ class FundingCarry(BaseStrategy):
             max_concurrent=max_positions,
             notional_per_leg=notional_per_leg * 2,
         )
+        self.min_oi_usd = min_oi_usd
 
     @property
     def name(self) -> str:
@@ -127,9 +131,9 @@ class FundingCarry(BaseStrategy):
             sig = signal_map.get(perp_symbol)
             if sig is None or sig.apy_net < self.min_apy:
                 continue
-            candidates.append((u, sig.score_weekly))
+            candidates.append((u, sig.unified_score))
 
-        # Sort by weekly score desc, take top N pairs
+        # Sort by unified score desc, take top N pairs
         candidates.sort(key=lambda x: x[1], reverse=True)
         return [u for u, _ in candidates[:self.allocator.available_slots]]
 
@@ -409,57 +413,99 @@ class FundingCarry(BaseStrategy):
         )
 
     async def _fetch_signals(self, db_path: str) -> list[Signal]:
-        """Re-run signal detection on latest data, enriched with weekly scores."""
-        from fund_rate_arb.db import query_all_latest, get_connection
+        """Re-run signal detection on latest data, enriched with unified scores."""
+        from fund_rate_arb.db import get_connection
+        from fund_rate_arb.models.funding import FundingRate, SpreadData
         from fund_rate_arb.signal.detector import detect_signals, rank_signals
 
-        data = query_all_latest(db_path, exchange="binance")
-        if not data:
-            return []
+        conn = get_connection(db_path)
+        try:
+            conn.row_factory = sqlite3.Row
 
-        from fund_rate_arb.models.funding import FundingRate, SpreadData
+            # Latest funding rates (binance)
+            data = conn.execute(
+                "SELECT * FROM funding_rates "
+                "WHERE exchange = 'binance' "
+                "AND timestamp = (SELECT MAX(timestamp) FROM funding_rates WHERE exchange = 'binance')"
+            ).fetchall()
 
-        rates = []
-        spreads = []
-        for row in data:
-            rates.append(
-                FundingRate(
-                    symbol=row["symbol"],
-                    exchange="binance",
-                    timestamp=datetime.now(timezone.utc),
-                    funding_rate=row["funding_rate"],
-                    mark_price=row.get("mark_price"),
-                    index_price=row.get("index_price"),
+            if not data:
+                return []
+
+            # Real spread data from spread_data table
+            spreads_raw = conn.execute(
+                "SELECT * FROM spread_data "
+                "WHERE exchange = 'binance' "
+                "AND timestamp = (SELECT MAX(timestamp) FROM spread_data WHERE exchange = 'binance')"
+            ).fetchall()
+
+            # OI snapshot for filtering
+            oi_raw = conn.execute(
+                "SELECT symbol, open_interest FROM oi_snapshots "
+                "WHERE exchange = 'binance' "
+                "AND timestamp = (SELECT MAX(timestamp) FROM oi_snapshots WHERE exchange = 'binance')"
+            ).fetchall()
+            oi_map = {r["symbol"].removesuffix("USDT"): r["open_interest"] for r in oi_raw}
+
+            rates = []
+            for row in data:
+                rates.append(
+                    FundingRate(
+                        symbol=row["symbol"],
+                        exchange="binance",
+                        timestamp=datetime.now(timezone.utc),
+                        funding_rate=row["funding_rate"],
+                        mark_price=row["mark_price"] or 0,
+                        index_price=row["index_price"] or 0,
+                    )
                 )
-            )
-            if row.get("spread_bps", 0) > 0:
+
+            spreads = []
+            for row in spreads_raw:
                 spreads.append(
                     SpreadData(
                         symbol=row["symbol"],
                         exchange="binance",
                         timestamp=datetime.now(timezone.utc),
-                        bid=row.get("mark_price", 0) or 0,
-                        ask=row.get("mark_price", 0) or 0,
+                        bid=row["bid"],
+                        ask=row["ask"],
                         spread_bps=row["spread_bps"],
                     )
                 )
 
-        signals = detect_signals(rates, spreads, apy_threshold=self.min_apy)
+            # Detect signals with real spread + OI
+            signals = detect_signals(
+                rates, spreads, apy_threshold=self.min_apy,
+                min_oi_usd=self.min_oi_usd,
+                oi_map=oi_map,
+            )
 
-        history_map: dict[tuple[str, str], list[float]] = {}
-        conn = get_connection(db_path)
-        try:
+            # 72h funding + OI history for ranking
+            cutoff = int(time.time() - 72 * 3600)
+            cutoff_iso = datetime.fromtimestamp(cutoff, timezone.utc).isoformat()
+            history_map: dict[tuple[str, str], list[float]] = {}
+            oi_history_map: dict[str, list[float]] = {}
             for sig in signals:
                 symbol_usdt = sig.symbol + "USDT"
                 rows = conn.execute(
                     "SELECT funding_rate FROM funding_rates "
                     "WHERE symbol = ? AND exchange = 'binance' "
-                    "ORDER BY timestamp DESC LIMIT 27",
-                    (symbol_usdt,),
+                    "AND timestamp >= ? ORDER BY timestamp ASC",
+                    (symbol_usdt, cutoff_iso),
                 ).fetchall()
                 if rows:
                     history_map[("BN", sig.symbol)] = [r[0] for r in rows]
+
+                oi_rows = conn.execute(
+                    "SELECT open_interest FROM oi_snapshots "
+                    "WHERE symbol = ? AND exchange = 'binance' "
+                    "AND timestamp >= ? ORDER BY timestamp ASC",
+                    (symbol_usdt, cutoff_iso),
+                ).fetchall()
+                if oi_rows:
+                    oi_history_map[sig.symbol] = [r[0] for r in oi_rows]
+
         finally:
             conn.close()
 
-        return rank_signals(signals, history_map)
+        return rank_signals(signals, history_map, oi_map=oi_history_map)

@@ -55,8 +55,8 @@ class TestFeeModel:
         assert breakdown.break_even_days == -1.0
 
     def test_break_even_calculation(self):
-        # entry = (maker+taker)/2 + slippage + spread/2 = 0.00035 + 0.0003 + 0.0001 = 0.00075
-        # round_trip = 0.0015, daily = 0.0004 => 3.75 days
+        # entry = maker + taker + slippage + spread = 0.0002 + 0.0005 + 0.0003 + 0.0002 = 0.0012
+        # round_trip = 0.0024, daily = 0.0004 => 6.0 days
         breakdown = compute_fees(
             maker_fee=0.0002,
             taker_fee=0.0005,
@@ -64,7 +64,7 @@ class TestFeeModel:
             spread_cost=0.0002,
             net_funding_per_day=0.0004,
         )
-        assert breakdown.break_even_days == 3.8
+        assert breakdown.break_even_days == 6.0
 
     def test_annualized_apy(self):
         apy = annualized_funding_apy(0.0001)  # 0.01% per 8h
