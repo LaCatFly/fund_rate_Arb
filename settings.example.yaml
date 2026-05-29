@@ -239,7 +239,7 @@ strategy:
 # Network
 # ---------------------------------------------------------------------------
 network:
-  binance_proxy: "http://127.0.0.1:7897"   # Clash Meta mixed port
+  binance_proxy: null   # Set to proxy URL on local dev, null on VPS
   binance_futures_base: "https://fapi.binance.com"
   hyperliquid_api: "https://api.hyperliquid.xyz"
 

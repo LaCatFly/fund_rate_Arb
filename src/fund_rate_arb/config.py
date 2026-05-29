@@ -53,7 +53,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "default_leverage": 1,
     },
     "network": {
-        "binance_proxy": "http://127.0.0.1:7897",
+        "binance_proxy": None,
         "binance_futures_base": "https://fapi.binance.com",
         "hyperliquid_api": "https://api.hyperliquid.xyz",
     },
@@ -192,7 +192,7 @@ def get_strategy_specs(settings: dict | None = None) -> list:
 # Strategy constants
 FUNDING_INTERVALS_PER_DAY: int = _RAW["strategy"]["funding_intervals_per_day"]
 FUNDING_INTERVALS_PER_YEAR: int = FUNDING_INTERVALS_PER_DAY * 365
-BINANCE_PROXY: str = os.environ.get("BINANCE_PROXY", _RAW["network"]["binance_proxy"])
+BINANCE_PROXY: str | None = os.environ.get("BINANCE_PROXY") or _RAW["network"].get("binance_proxy")
 
 
 # ---------------------------------------------------------------------------
